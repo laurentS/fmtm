@@ -91,11 +91,13 @@ services:
         condition: service_completed_successfully
       s3:
         condition: service_healthy
+      # api:
+      #   condition: service_healthy
     env_file:
       - .env
     ports:
       - "7052-7053:8000"
-    #   - "5678-5679:5678" # Debugger port
+      - "5678-5679:5678" # Debugger port
     networks:
       - fmtm-net
     restart: "unless-stopped"
@@ -262,3 +264,46 @@ services:
     restart: "on-failure:3"
     healthcheck:
       test: [] # Set the health check test to an empty value to disable it
+
+
+  faststream:
+    build:
+      context: src/backend
+      target: "${TARGET_OVERRIDE:-debug}"
+      args:
+        APP_VERSION: "${TAG_OVERRIDE:-debug}"
+    # restart: unless
+    restart: "unless-stopped"
+
+    # entrypoint : sleep infinity
+    entrypoint : "faststream run app.faststream_serve:app"
+    depends_on:
+      api:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    # volumes:
+      # - .:/code
+      # - ./logs/:/logs/
+    volumes:
+      - ./logs/:/logs/
+      # - fmtm_tiles:/opt/tiles
+      - ./src/backend/pyproject.toml:/opt/pyproject.toml
+      - ./src/backend/app:/opt/app
+      # - ./src/backend/tests:/opt/tests
+
+    env_file:
+      - .env
+    networks:
+      - fmtm-net
+
+  redis:
+    image: redis:alpine
+    restart: always
+    command: redis-server --appendonly yes
+    volumes:
+      - ../redis_data:/var/lib/redis
+    networks:
+      - fmtm-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
