@@ -50,6 +50,9 @@ dependencies = [
     "osm-fieldwork==0.5.3",
     "osm-rawdata==0.2.3",
     "fmtm-splitter==1.2.0",
+    "faststream==0.4.7",
+    "redis==5.0.3"
+    
 ]
 requires-python = ">=3.10"
 readme = "../../README.md"
