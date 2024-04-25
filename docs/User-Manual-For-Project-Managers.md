@@ -148,17 +148,14 @@ and improve the effectiveness of humanitarian efforts.
 
     ![project create area][16]
 
-16. If you choose "Divide on Square," specify the dimensions of the square tasks.
+16. User can choose if they want to use osm data extract or upload custom data extract for their field mapping. 
 
     Click on "Next" to proceed.
 
     ![project task split][17]
 
-17. Select Form . Select the form category you want to use for the field
-    mapping, such as "Data Extract" or any other relevant category.
-
-    Choose a specific form from the existing categories or upload a custom form
-    if needed.
+17. The final step for project creation allows you to choose how you want to split your Area of Interest. You can either divide by square by providing the size of square boxes you want. Similarly, If your project area already contains divisions you can also use them as single task per polygon. 
+You can also use task splitting algorithm which divides your area of interest into tasks by average number of building features you want per tasks. 
     Click on "Submit" to proceed.
 
     ![project creation status][18]
@@ -177,8 +174,7 @@ and improve the effectiveness of humanitarian efforts.
    ![select task][19]
 
 3. If a task is already locked by another user, choose a different task that is
-   available for mapping.If a task is already locked by another user, choose a
-   different task that is available for mapping.
+   available for mapping.
 
    - The drop down icon beside **LEGEND** displays a color code. This
      color code lets you know the status of each task on the map.
@@ -204,7 +200,7 @@ and improve the effectiveness of humanitarian efforts.
    - To begin mapping, click on a task closest to you that has the color
      code associated with **READY** and change it's status from **READY**
      to **LOCKED FOR MAPPING**. Remember to take note of the number tag.
-   - Scroll to the bottom of the page. The **ACTIVITIES** tab shows the
+   - The **ACTIVITIES** tab shows the
      tasks either **LOCKED FOR MAPPING**, **BAD** or **LOCKED FOR
      VALIDATION**. You can search for tasks with the status mentioned
      using the number tag associated with each task.
