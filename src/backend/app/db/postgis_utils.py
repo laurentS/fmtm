@@ -19,19 +19,21 @@
 
 import json
 import logging
+from asyncio import gather
 from datetime import datetime, timezone
 from random import getrandbits
 from typing import Optional, Union
 
 import geojson
 import requests
+import shapely
 from fastapi import HTTPException
 from geoalchemy2 import WKBElement
 from geoalchemy2.shape import from_shape, to_shape
-from geojson.feature import FeatureCollection
-from geojson_pydantic import Feature, Polygon
+from geojson_pydantic import Feature, MultiPolygon, Polygon
 from geojson_pydantic import FeatureCollection as FeatCol
 from shapely.geometry import mapping, shape
+from shapely.ops import unary_union
 from sqlalchemy import text
 from sqlalchemy.exc import ProgrammingError
 from sqlalchemy.orm import Session
@@ -90,10 +92,14 @@ def get_centroid(
 
 
 def geojson_to_geometry(
-    geojson: Union[FeatCol, Feature, Polygon],
+    geojson: Union[FeatCol, Feature, MultiPolygon, Polygon],
 ) -> Optional[WKBElement]:
     """Convert GeoJSON to SQLAlchemy geometry."""
-    parsed_geojson = parse_and_filter_geojson(geojson.model_dump_json(), filter=False)
+    parsed_geojson = geojson
+    if isinstance(geojson, (FeatCol, Feature, MultiPolygon, Polygon)):
+        parsed_geojson = parse_and_filter_geojson(
+            geojson.model_dump_json(), filter=False
+        )
 
     if not parsed_geojson:
         return None
@@ -157,7 +163,9 @@ async def geojson_to_flatgeobuf(
             (geom, osm_id, tags, version, changeset, timestamp)
         SELECT
             ST_ForceCollection(ST_GeomFromGeoJSON(feat->>'geometry')) AS geom,
-            (feat->'properties'->>'osm_id')::integer as osm_id,
+            regexp_replace(
+                (feat->'properties'->>'osm_id')::text, '[^0-9]', '', 'g'
+            )::integer as osm_id,
             (feat->'properties'->>'tags')::text as tags,
             (feat->'properties'->>'version')::integer as version,
             (feat->'properties'->>'changeset')::integer as changeset,
@@ -287,29 +295,24 @@ async def split_geojson_by_task_areas(
             ST_SetSRID(ST_GeomFromGeoJSON(feature->>'geometry'), 4326) AS geometry,
             jsonb_set(
                 jsonb_set(
-                    jsonb_set(
-                        feature->'properties',
-                        '{task_id}', to_jsonb(tasks.id), true
-                    ),
-                    '{project_id}', to_jsonb(tasks.project_id), true
+                    feature->'properties',
+                    '{task_id}', to_jsonb(tasks.project_task_index), true
                 ),
-                '{title}', to_jsonb(CONCAT(
-                    'project_',
-                    :project_id,
-                    '_task_',
-                    tasks.id
-                )), true
+                '{project_id}', to_jsonb(tasks.project_id), true
             ) AS properties
         FROM (
             SELECT jsonb_array_elements(CAST(:geojson_featcol AS jsonb)->'features')
             AS feature
         ) AS features
-        CROSS JOIN tasks
-        WHERE tasks.project_id = :project_id;
+        JOIN tasks ON tasks.project_id = :project_id
+        WHERE
+            ST_Within(
+                ST_Centroid(ST_SetSRID(ST_GeomFromGeoJSON(feature->>'geometry'), 4326)
+                ), tasks.outline);
 
         -- Retrieve task outlines based on the provided project_id
         SELECT
-            tasks.id AS task_id,
+            tasks.project_task_index AS task_id,
             jsonb_build_object(
                 'type', 'FeatureCollection',
                 'features', jsonb_agg(feature)
@@ -337,7 +340,7 @@ async def split_geojson_by_task_areas(
         WHERE
             tasks.project_id = :project_id
         GROUP BY
-            tasks.id;
+            tasks.project_task_index;
         """
     )
 
@@ -357,6 +360,7 @@ async def split_geojson_by_task_areas(
         return None
 
     if feature_collections:
+        # NOTE the feature collections are nested in a tuple, first remove
         task_geojson_dict = {
             record[0]: geojson.loads(json.dumps(record[1]))
             for record in feature_collections
@@ -382,9 +386,9 @@ def add_required_geojson_properties(
             properties["osm_id"] = feature_id
 
         # Check for id type embedded in properties
-        if properties.get("osm_id"):
-            # osm_id exists already, skip
-            pass
+        if osm_id := properties.get("osm_id"):
+            # osm_id property exists, set top level id
+            feature["id"] = osm_id
         else:
             if prop_id := properties.get("id"):
                 # id is nested in properties, use that
@@ -417,7 +421,7 @@ def add_required_geojson_properties(
 def parse_and_filter_geojson(
     geojson_raw: Union[str, bytes], filter: bool = True
 ) -> Optional[geojson.FeatureCollection]:
-    """Parse geojson string and filter out incomaptible geometries."""
+    """Parse geojson string and filter out incompatible geometries."""
     geojson_parsed = geojson.loads(geojson_raw)
 
     if isinstance(geojson_parsed, geojson.FeatureCollection):
@@ -533,7 +537,9 @@ def get_address_from_lat_lon(latitude, longitude):
     }
     headers = {"Accept-Language": "en"}  # Set the language to English
 
-    log.debug("Getting Nominatim address from project centroid")
+    log.debug(
+        f"Getting Nominatim address from project lat ({latitude}) lon ({longitude})"
+    )
     response = requests.get(base_url, params=params, headers=headers)
     if (status_code := response.status_code) != 200:
         log.error(f"Getting address string failed: {status_code}")
@@ -549,8 +555,9 @@ def get_address_from_lat_lon(latitude, longitude):
 
     country = address.get("country", "")
     city = address.get("city", "")
+    state = address.get("state", "")
 
-    address_str = f"{city},{country}"
+    address_str = f"{city},{country}" if city else f"{state},{country}"
 
     if not address_str or address_str == ",":
         log.error("Getting address string failed")
@@ -565,7 +572,7 @@ async def get_address_from_lat_lon_async(latitude, longitude):
 
 
 async def geojson_to_javarosa_geom(geojson_geometry: dict) -> str:
-    """Convert a GeoJSON Polygon geometry to JavaRosa format string.
+    """Convert a GeoJSON geometry to JavaRosa format string.
 
     This format is unique to ODK and the JavaRosa XForm processing library.
     Example JavaRosa polygon (semicolon separated):
@@ -576,59 +583,197 @@ async def geojson_to_javarosa_geom(geojson_geometry: dict) -> str:
     -8.38071535576881 115.640801902838 0.0 0.0
 
     Args:
-        geojson_geometry (dict): The geojson polygon geom.
+        geojson_geometry (dict): The GeoJSON geometry.
 
     Returns:
         str: A string representing the geometry in JavaRosa format.
     """
-    # Ensure the GeoJSON geometry is of type Polygon
-    # FIXME support other geom types
-    if geojson_geometry["type"] != "Polygon":
-        raise ValueError("Input must be a GeoJSON Polygon")
+    if geojson_geometry is None:
+        return ""
 
-    coordinates = geojson_geometry["coordinates"][
-        0
-    ]  # Extract the coordinates of the Polygon
+    coordinates = []
+    if geojson_geometry["type"] in ["Point", "LineString", "MultiPoint"]:
+        coordinates = [[geojson_geometry.get("coordinates", [])]]
+    elif geojson_geometry["type"] in ["Polygon", "MultiLineString"]:
+        coordinates = geojson_geometry.get("coordinates", [])
+    elif geojson_geometry["type"] == "MultiPolygon":
+        # Flatten the list structure to get coordinates of all polygons
+        coordinates = sum(geojson_geometry.get("coordinates", []), [])
+    else:
+        raise ValueError("Unsupported GeoJSON geometry type")
+
     javarosa_geometry = []
+    for polygon in coordinates:
+        for lon, lat in polygon:
+            javarosa_geometry.append(f"{lat} {lon} 0.0 0.0")
 
-    for coordinate in coordinates:
-        lon, lat = coordinate[:2]
-        javarosa_geometry.append(f"{lat} {lon} 0.0 0.0")
-
-    javarosa_geometry_string = ";".join(javarosa_geometry)
-
-    return javarosa_geometry_string
+    return ";".join(javarosa_geometry)
 
 
-async def get_entity_dicts_from_task_geojson(
-    project_id: int,
-    task_id: int,
-    task_data_extract: FeatureCollection,
+async def javarosa_to_geojson_geom(javarosa_geom_string: str, geom_type: str) -> dict:
+    """Convert a JavaRosa format string to GeoJSON geometry.
+
+    Args:
+        javarosa_geom_string (str): The JavaRosa geometry.
+        geom_type (str): The geometry type.
+
+    Returns:
+        dict: A geojson geometry.
+    """
+    if javarosa_geom_string is None:
+        return {}
+
+    if geom_type == "Point":
+        lat, lon, _, _ = map(float, javarosa_geom_string.split())
+        geojson_geometry = {"type": "Point", "coordinates": [lon, lat]}
+    elif geom_type == "Polyline":
+        coordinates = [
+            [float(coord) for coord in reversed(point.split()[:2])]
+            for point in javarosa_geom_string.split(";")
+        ]
+        geojson_geometry = {"type": "LineString", "coordinates": coordinates}
+    elif geom_type == "Polygon":
+        coordinates = [
+            [
+                [float(coord) for coord in reversed(point.split()[:2])]
+                for point in coordinate.split(";")
+            ]
+            for coordinate in javarosa_geom_string.split(",")
+        ]
+        geojson_geometry = {"type": "Polygon", "coordinates": coordinates}
+    else:
+        raise ValueError("Unsupported GeoJSON geometry type")
+
+    return geojson_geometry
+
+
+async def feature_geojson_to_entity_dict(
+    feature: dict,
 ) -> dict:
-    """Get a dictionary of Entity info mapped from task geojsons."""
-    id_properties_dict = {}
+    """Convert a single GeoJSON to an Entity dict for upload."""
+    feature_id = feature.get("id")
 
-    features = task_data_extract.get("features", [])
+    geometry = feature.get("geometry", {})
+    javarosa_geom = await geojson_to_javarosa_geom(geometry)
+
+    # NOTE all properties MUST be string values for Entities, convert
+    properties = {
+        str(key): str(value) for key, value in feature.get("properties", {}).items()
+    }
+    # Set to TaskStatus enum READY value (0)
+    properties["status"] = "0"
+
+    task_id = properties.get("task_id")
+    entity_label = f"Task {task_id} Feature {feature_id}"
+
+    return {entity_label: {"geometry": javarosa_geom, **properties}}
+
+
+async def task_geojson_dict_to_entity_values(task_geojson_dict):
+    """Convert a dict of task GeoJSONs into data for ODK Entity upload."""
+    asyncio_tasks = []
+    for _, geojson_dict in task_geojson_dict.items():
+        features = geojson_dict.get("features", [])
+        asyncio_tasks.extend(
+            [feature_geojson_to_entity_dict(feature) for feature in features if feature]
+        )
+
+    entity_values = await gather(*asyncio_tasks)
+    # Merge all dicts into a single dict
+    return {k: v for result in entity_values for k, v in result.items()}
+
+
+def multipolygon_to_polygon(features: Union[Feature, FeatCol, MultiPolygon, Polygon]):
+    """Converts a GeoJSON FeatureCollection of MultiPolygons to Polygons.
+
+    Args:
+        features : A GeoJSON FeatureCollection containing MultiPolygons/Polygons.
+
+    Returns:
+        geojson.FeatureCollection: A GeoJSON FeatureCollection containing Polygons.
+    """
+    geojson_feature = []
+    features = parse_featcol(features)
+
+    # handles both collection or single feature
+    features = features.get("features", [features])
+
     for feature in features:
-        geometry = feature.get("geometry")
-        javarosa_geom = await geojson_to_javarosa_geom(geometry)
+        properties = feature["properties"]
+        geom = shape(feature["geometry"])
+        if geom.geom_type == "Polygon":
+            geojson_feature.append(
+                geojson.Feature(geometry=geom, properties=properties)
+            )
+        elif geom.geom_type == "MultiPolygon":
+            geojson_feature.extend(
+                geojson.Feature(geometry=polygon_coords, properties=properties)
+                for polygon_coords in geom.geoms
+            )
 
-        properties = feature.get("properties", {})
-        osm_id = properties.get("osm_id", getrandbits(30))
-        tags = properties.get("tags")
-        version = properties.get("version")
-        changeset = properties.get("changeset")
-        timestamp = properties.get("timestamp")
+    return geojson.FeatureCollection(geojson_feature)
 
-        # Must be string values to work with Entities
-        id_properties_dict[osm_id] = {
-            "project_id": str(project_id),
-            "task_id": str(task_id),
-            "geometry": javarosa_geom,
-            "tags": str(tags),
-            "version": str(version),
-            "changeset": str(changeset),
-            "timestamp": str(timestamp),
-        }
 
-    return id_properties_dict
+def merge_multipolygon(features: Union[Feature, FeatCol, MultiPolygon, Polygon]):
+    """Merge multiple Polygons or MultiPolygons into a single Polygon.
+
+    Args:
+        features: geojson features to merge.
+
+    Returns:
+        A GeoJSON FeatureCollection containing the merged Polygon.
+    """
+    try:
+
+        def remove_z_dimension(coord):
+            """Remove z dimension from geojson."""
+            return coord.pop() if len(coord) == 3 else None
+
+        features = parse_featcol(features)
+
+        multi_polygons = []
+        # handles both collection or single feature
+        features = features.get("features", [features])
+
+        for feature in features:
+            list(map(remove_z_dimension, feature["geometry"]["coordinates"][0]))
+            polygon = shapely.geometry.shape(feature["geometry"])
+            multi_polygons.append(polygon)
+
+        merged_polygon = unary_union(multi_polygons)
+        if isinstance(merged_polygon, MultiPolygon):
+            merged_polygon = merged_polygon.convex_hull
+
+        merged_geojson = mapping(merged_polygon)
+        if merged_geojson["type"] == "MultiPolygon":
+            log.error(
+                "Resulted GeoJSON contains disjoint Polygons. "
+                "Adjacent polygons are preferred."
+            )
+        return geojson.FeatureCollection([geojson.Feature(geometry=merged_geojson)])
+    except Exception as e:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Couldn't merge the multipolygon to polygon: {str(e)}",
+        ) from e
+
+
+def parse_featcol(features: Union[Feature, FeatCol, MultiPolygon, Polygon]):
+    """Parse a feature collection or feature into a GeoJSON FeatureCollection.
+
+    Args:
+        features: Feature, FeatCol, MultiPolygon, Polygon or dict.
+
+    Returns:
+        dict: Parsed GeoJSON FeatureCollection.
+    """
+    if isinstance(features, dict):
+        return features
+
+    feat_col = features.model_dump_json()
+    feat_col = geojson.loads(feat_col)
+    if isinstance(features, (Polygon, MultiPolygon)):
+        feat_col = geojson.FeatureCollection([geojson.Feature(geometry=feat_col)])
+    elif isinstance(features, Feature):
+        feat_col = geojson.FeatureCollection([feat_col])
+    return feat_col

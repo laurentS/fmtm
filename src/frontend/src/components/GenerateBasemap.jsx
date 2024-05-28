@@ -9,8 +9,7 @@ import { ProjectActions } from '@/store/slices/ProjectSlice';
 const GenerateBasemap = ({ projectInfo }) => {
   const dispatch = CoreModules.useAppDispatch();
   const params = CoreModules.useParams();
-  const encodedId = params.id;
-  const decodedId = environment.decode(encodedId);
+  const id = params.id;
 
   const [selectedTileSource, setSelectedTileSource] = useState(null);
   const [selectedOutputFormat, setSelectedOutputFormat] = useState(null);
@@ -32,12 +31,16 @@ const GenerateBasemap = ({ projectInfo }) => {
   });
   const downloadBasemap = (tileId, toOpfs = false) => {
     dispatch(
-      DownloadTile(`${import.meta.env.VITE_API_URL}/projects/download_tiles/?tile_id=${tileId}`, projectInfo, toOpfs),
+      DownloadTile(
+        `${import.meta.env.VITE_API_URL}/projects/${id}/download-tiles/?tile_id=${tileId}`,
+        projectInfo,
+        toOpfs,
+      ),
     );
   };
 
   const getTilesList = () => {
-    dispatch(GetTilesList(`${import.meta.env.VITE_API_URL}/projects/tiles_list/${decodedId}/`));
+    dispatch(GetTilesList(`${import.meta.env.VITE_API_URL}/projects/${id}/tiles-list/`));
   };
 
   useEffect(() => {
@@ -46,6 +49,13 @@ const GenerateBasemap = ({ projectInfo }) => {
       getTilesList();
     }
   }, [toggleGenerateMbTilesModal]);
+
+  useEffect(() => {
+    if (projectInfo?.custom_tms_url) {
+      setSelectedTileSource('tms');
+      setTmsUrl(projectInfo?.custom_tms_url);
+    }
+  }, [projectInfo]);
 
   const handleTileSourceChange = (e) => {
     setSelectedTileSource(e.target.value);
@@ -81,8 +91,8 @@ const GenerateBasemap = ({ projectInfo }) => {
         GenerateProjectTiles(
           `${
             import.meta.env.VITE_API_URL
-          }/projects/tiles/${decodedId}?source=${selectedTileSource}&format=${selectedOutputFormat}&tms=${tmsUrl}`,
-          decodedId,
+          }/projects/${id}/tiles?source=${selectedTileSource}&format=${selectedOutputFormat}&tms=${tmsUrl}`,
+          id,
         ),
       );
     }

@@ -263,18 +263,32 @@ class DbProjectChat(Base):
     posted_by = relationship(DbUser, foreign_keys=[user_id])
 
 
-class DbXForm(Base):
-    """Xform templates and custom uploads."""
+class DbXLSForm(Base):
+    """XLSForm templates and custom uploads."""
 
     __tablename__ = "xlsforms"
     id = cast(int, Column(Integer, primary_key=True, autoincrement=True))
     # The XLSForm name is the only unique thing we can use for a key
     # so on conflict update works. Otherwise we get multiple entries.
     title = cast(str, Column(String, unique=True))
+    xls = cast(bytes, Column(LargeBinary))
+
+
+class DbXForm(Base):
+    """XForms linked per project.
+
+    TODO eventually we will support multiple forms per project.
+    TODO So the category field a stub until then.
+    TODO currently it's maintained under projects.xform_category.
+    """
+
+    __tablename__ = "xforms"
+    id = cast(int, Column(Integer, primary_key=True, autoincrement=True))
+    project_id = cast(
+        int, Column(Integer, ForeignKey("projects.id"), name="project_id", index=True)
+    )
+    odk_form_id = cast(str, Column(String))
     category = cast(str, Column(String))
-    description = cast(str, Column(String))
-    xml = cast(str, Column(String))  # Internal form representation
-    xls = cast(bytes, Column(LargeBinary))  # Human readable representation
 
 
 class DbTaskInvalidationHistory(Base):
@@ -449,7 +463,6 @@ class DbTask(Base):
             BigInteger, ForeignKey("users.id", name="fk_users_validator"), index=True
         ),
     )
-    odk_token = cast(str, Column(String, nullable=True))
 
     # Define relationships
     task_history = relationship(
@@ -516,6 +529,7 @@ class DbProject(Base):
         backref="project",
     )
     location_str = cast(str, Column(String))
+    custom_tms_url = cast(str, Column(String))
 
     # GEOMETRY
     outline = cast(WKBElement, Column(Geometry("POLYGON", srid=4326)))
@@ -584,6 +598,10 @@ class DbProject(Base):
 
     # XForm category specified
     xform_category = cast(str, Column(String))
+    # Linked XForms
+    forms = relationship(
+        DbXForm, backref="project_xform_link", cascade="all, delete, delete-orphan"
+    )
 
     __table_args__ = (
         Index("idx_geometry", outline, postgresql_using="gist"),
@@ -619,6 +637,7 @@ class DbProject(Base):
     odk_central_url = cast(str, Column(String))
     odk_central_user = cast(str, Column(String))
     odk_central_password = cast(str, Column(String))
+    odk_token = cast(str, Column(String, nullable=True))
 
     form_xls = cast(
         bytes, Column(LargeBinary)

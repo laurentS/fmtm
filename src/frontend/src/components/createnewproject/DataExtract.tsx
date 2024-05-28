@@ -13,6 +13,9 @@ import { FormCategoryService } from '@/api/CreateProjectService';
 import FileInputComponent from '@/components/common/FileInputComponent';
 import DataExtractValidation from '@/components/createnewproject/validation/DataExtractValidation';
 import NewDefineAreaMap from '@/views/NewDefineAreaMap';
+import useDocumentTitle from '@/utilfunctions/useDocumentTitle';
+import { checkGeomTypeInGeojson } from '@/utilfunctions/checkGeomTypeInGeojson';
+import { task_split_type } from '@/types/enums';
 
 const dataExtractOptions = [
   { name: 'data_extract', value: 'osm_data_extract', label: 'Use OSM data extract' },
@@ -20,9 +23,9 @@ const dataExtractOptions = [
 ];
 
 const DataExtract = ({ flag, customDataExtractUpload, setCustomDataExtractUpload }) => {
+  useDocumentTitle('Create Project: Data Extract');
   const dispatch = useDispatch();
   const navigate = useNavigate();
-  console.log(customDataExtractUpload, 'customDataExtractUpload');
   const [extractWays, setExtractWays] = useState('');
   const projectDetails: any = useAppSelector((state) => state.createproject.projectDetails);
   const projectAoiGeojson = useAppSelector((state) => state.createproject.drawnGeojson);
@@ -107,7 +110,6 @@ const DataExtract = ({ flag, customDataExtractUpload, setCustomDataExtractUpload
       );
       dispatch(CreateProjectActions.SetFgbFetchingStatus(false));
       // TODO add error message for user
-      console.error('Error getting data extract:', error);
     }
   };
 
@@ -176,7 +178,19 @@ const DataExtract = ({ flag, customDataExtractUpload, setCustomDataExtractUpload
       const geojsonFile = new File([extractFeatCol], 'custom_extract.geojson', { type: 'application/json' });
       setDataExtractToState(geojsonFile);
     }
-
+    const hasGeojsonLineString = checkGeomTypeInGeojson(extractFeatCol, 'LineString');
+    handleCustomChange('hasGeojsonLineString', hasGeojsonLineString);
+    handleCustomChange('task_split_type', task_split_type['choose_area_as_task'].toString());
+    if (!hasGeojsonLineString) {
+      dispatch(
+        CommonActions.SetSnackBar({
+          open: true,
+          message: 'Data extract must contain a LineString otherwise the task splitting algorithm will not work.',
+          variant: 'warning',
+          duration: 8000,
+        }),
+      );
+    }
     // View on map
     await dispatch(CreateProjectActions.setDataExtractGeojson(extractFeatCol));
   };

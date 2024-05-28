@@ -6,7 +6,6 @@ import CoreModules from '@/shared/CoreModules';
 import AssetModules from '@/shared/AssetModules';
 import { getCenter } from 'ol/extent';
 import Point from 'ol/geom/Point.js';
-import { transform } from 'ol/proj';
 
 function createPolygonStyle(fillColor, strokeColor) {
   return new Style({
@@ -17,6 +16,7 @@ function createPolygonStyle(fillColor, strokeColor) {
     fill: new Fill({
       color: fillColor,
     }),
+    zIndex: 10,
   });
 }
 function createIconStyle(iconSrc) {
@@ -29,28 +29,26 @@ function createIconStyle(iconSrc) {
       src: iconSrc,
     }),
     geometry: function (feature) {
-      // return the coordinates of the centroid of the polygon
-      // const coordinates = feature.getGeometry().getExtent();
-      // const center = getCenter(coordinates);
-      const convertedCenter = transform(feature.values_.centroid, 'EPSG:4326', 'EPSG:3857');
-      return new Point(convertedCenter);
+      const polygonCentroid = getCenter(feature.getGeometry().getExtent());
+      return new Point(polygonCentroid);
     },
   });
 }
 export default function MapStyles() {
   const mapTheme = CoreModules.useAppSelector((state) => state.theme.hotTheme);
   const [style, setStyle] = useState({});
-  const strokeColor = 'rgb(0,0,0,0.5)';
+  const strokeColor = 'rgb(0,0,0,0.3)';
+  const secondaryStrokeColor = 'rgb(0,0,0,1)';
 
   useEffect(() => {
     // Example usage:
     const lockedPolygonStyle = createPolygonStyle(
       mapTheme.palette.mapFeatureColors.locked_for_mapping_rgb,
-      strokeColor,
+      secondaryStrokeColor,
     );
     const lockedValidationStyle = createPolygonStyle(
       mapTheme.palette.mapFeatureColors.locked_for_validation_rgb,
-      strokeColor,
+      secondaryStrokeColor,
     );
     const iconStyle = createIconStyle(AssetModules.LockPng);
     const redIconStyle = createIconStyle(AssetModules.RedLockPng);

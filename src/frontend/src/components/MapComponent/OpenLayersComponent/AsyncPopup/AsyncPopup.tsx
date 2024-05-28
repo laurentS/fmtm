@@ -15,6 +15,8 @@ type asyncPopupPropType = {
   loading?: boolean;
   showOnHover?: string;
   primaryKey?: string;
+  popupId?: string;
+  className?: string;
 };
 
 function hasKey(obj, key) {
@@ -22,7 +24,6 @@ function hasKey(obj, key) {
 }
 
 const layerIds = ['code'];
-const popupId = 'popupx';
 
 const AsyncPopup = ({
   map,
@@ -35,6 +36,8 @@ const AsyncPopup = ({
   loading = false,
   showOnHover = 'click',
   primaryKey = 'uid',
+  popupId = 'popupx',
+  className,
 }: asyncPopupPropType) => {
   const popupRef = useRef<any>(null);
   const popupCloserRef = useRef<any>(null);
@@ -103,7 +106,6 @@ const AsyncPopup = ({
     if (!overlay) return;
 
     map.on(showOnHover, (evt) => {
-      // map.updateSize();
       overlay.setPosition(undefined);
       setPopupHTML('');
       setProperties(null);
@@ -131,7 +133,7 @@ const AsyncPopup = ({
         setCoordinates(null);
       }
     });
-  }, [map, closePopupFn]);
+  }, [map, closePopupFn, showOnHover]);
 
   // fetch popup data when properties is set
   useEffect(() => {
@@ -146,6 +148,7 @@ const AsyncPopup = ({
   useEffect(() => {
     if (!map || !coordinates || !overlay || !properties || closePopup) return;
     const htmlString = renderToString(popupUI(properties));
+    if (!htmlString) return;
     setPopupHTML(htmlString);
 
     overlay.setPosition([coordinates[0], coordinates[1]]);
@@ -166,7 +169,7 @@ const AsyncPopup = ({
     <div
       ref={popupRef}
       id="popup"
-      className="ol-popup"
+      className={`ol-popup ${className}`}
       style={{ zIndex: 100009 }}
       onBlur={(e) => {
         if (!e.currentTarget.contains(e.relatedTarget)) {

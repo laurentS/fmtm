@@ -21,8 +21,6 @@ dependencies, and creates a container for each the database, the api,
 and the frontend. These containers talk to each other via the
 URLs defined in the docker-compose file and your env file.
 
-### 1A: Starting the Containers
-
 1. You will need to
    [Install Docker](https://docs.docker.com/engine/install/)
    and ensure that it is running on your local machine.
@@ -43,11 +41,12 @@ URLs defined in the docker-compose file and your env file.
 > Note: the database host `fmtm-db` is automatically
 > resolved by docker compose to the database container IP.
 
-#### Bundled ODK Central
+### Bundled ODK Central
 
 - FMTM uses ODK Central to store ODK data.
 - To facilitate faster development, the Docker setup includes a Central server.
-- The credentials are provided via the `.env` file.
+- The credentials are provided via the `.env` file, and the default URL to
+  access Central from within containers is: `https://proxy`.
 
 > Alternatively, you may provide credentials to an external Central server
 > in the `.env`.
@@ -56,50 +55,17 @@ To run the local development setup without ODK Central (use external server):
 
 ```bash
 dc --profile no-odk up -d
+
+# Or via Just
+just start without-central
 ```
-
-### 1B: Import Test Data
-
-Some test data is available to get started quickly.
-
-1. Navigate to the `import-test-data` endpoint in the API docs page:
-   <http://api.fmtm.localhost:7050/docs#/debug/import_test_data_debug_import_test_data_get>
-2. Click `Try it out`, then `execute`.
 
 ## 2. Start the API without Docker
 
-To run FMTM without Docker, you will need to start the database, then the API.
-
-### 2A: Starting the Database
-
-#### Option 1: Run the Database (only) in Docker
-
-Running the database in Docker means postgres does
-not need to be installed on your local machine.
-
-1. You will need to
-   [Install Docker](https://docs.docker.com/engine/install/)
-   and ensure that it is running on your local machine.
-2. Start an instance of Postgres (with Postgis):
-
-```bash
-docker compose up -d fmtm-db
-```
-
-The database should be accessible at localhost:5438.
-
-> Note: if port 5438 is already taken, then change the
-> `-p ANY_PORT:5432` declaration.
-
-#### Option 2: Run the database locally
-
-For advanced users, it is also possible to run a
-postgresql/postgis database locally, however you will
-need to set it up yourself and make it accessible on a port.
-
-### 2B. Starting the API
-
-After starting the database, from the command line:
+- To run FMTM without Docker, you will need to start the database, then the API.
+- First start a Postgres database running on a port on your machine.
+  - The database must have the Postgis extension installed.
+- After starting the database, from the command line:
 
 1. Navigate to the top level directory of the FMTM project.
 2. Install PDM with: `pip install pdm`
@@ -109,25 +75,7 @@ After starting the database, from the command line:
 
 The API should now be accessible at: <http://api.fmtm.localhost:7050/docs>
 
-## 3. Hybrid Docker/Local
-
-- It is not recommended to run FMTM in a container while
-  using a local database on your machine.
-- It is possible, but complicates the docker networking slightly.
-- The FMTM container cannot see the local machine's
-  `localhost`, so we need a workaround.
-- **Option 1**: add `network_mode: "host"` under the `api:`
-  service in the **docker-compose.yml** file.
-- **Option 2**: use the direct container IP address for the
-  database for **FMTM_DB_HOST**, found via `docker inspect fmtm_db`.
-
 ## Backend Tips
-
-### Implement authorization on an endpoints
-
-To add authentication to an endpoint, import `login_required`
-from `auth` module, you can use it as a decorator or use
-fastapi `Depends(login_required)` on endpoints.
 
 ### Database Migration
 
@@ -148,6 +96,9 @@ fastapi `Depends(login_required)` on endpoints.
 
 ```bash
 docker compose up -d migrations
+
+# Or via Just
+just migrate
 ```
 
 ### Type Checking
@@ -164,7 +115,7 @@ docker compose up -d migrations
 }
 ```
 
-## Backend Debugging
+### Interactive Debugging
 
 - The `docker-compose.yml` builds FMTM using the `debug` target in the Dockerfile.
 - The debug image contains `debugpy` to assist debugging in the container.
@@ -215,12 +166,15 @@ Example launch.json config for vscode:
 > Note: either port 5678 needs to be bound to your localhost (default),
 > or the `host` parameter can be set to the container IP address.
 
-## Backend Testing
+### Running Tests
 
 To run the backend tests locally, run:
 
 ```bash
 docker compose run --rm api pytest
+
+# Or via Just
+just test backend
 ```
 
 To assess coverage of tests, run:
@@ -228,6 +182,9 @@ To assess coverage of tests, run:
 ```bash
 docker compose run --rm --entrypoint='sh -c' api \
   'coverage run -m pytest && coverage report -m'
+
+# Or via Just
+just test coverage
 ```
 
 To assess performance of endpoints:
@@ -236,15 +193,7 @@ To assess performance of endpoints:
 - While in debug mode (DEBUG=True), access any endpoint.
 - Add the `?profile=true` arg to the URL to view the execution time.
 
-## Using the local version of ODK Central
-
-- During project creation a Central ODK URL must be provided.
-- If you set up FMTM with docker and have ODK Central
-  running in a container, you can use the URL:
-  `https://proxy`
-- The credentials should be present in your `.env` file.
-
-## Debugging osm-fieldwork
+### Debugging osm-fieldwork
 
 `osm-fieldwork` is an integral package for much of the functionality in FMTM.
 
@@ -266,17 +215,10 @@ Creating a new release during development may not always be feasible.
 
 > Note: this is useful for debugging features during active development.
 
-## Accessing S3 Files use s3fs
+### Accessing S3 Files use s3fs
 
 The s3fs tool allows you to mount an S3 bucket on your filesystem,
 to browse like any other directory.
-
-Install:
-
-```bash
-sudo apt update
-sudo apt install s3fs
-```
 
 Create a credentials file:
 
@@ -284,6 +226,21 @@ Create a credentials file:
 # Replace ACCESS_KEY_ID and SECRET_ACCESS_KEY
 echo ACCESS_KEY_ID:SECRET_ACCESS_KEY > ${HOME}/.passwd-s3fs
 chmod 600 ${HOME}/.passwd-s3fs
+```
+
+#### Mount local S3 using Just
+
+```bash
+just mount-s3
+```
+
+#### Mount S3 manually
+
+Install s3fs:
+
+```bash
+sudo apt update
+sudo apt install s3fs
 ```
 
 Mount your bucket:
@@ -309,27 +266,41 @@ url=http://s3.fmtm.localhost:7050 0 0`
 
 > Note: you should replace USERNAME with your linux username.
 
-## Running JOSM in the dev stack
+### Running JOSM in the dev stack
 
-- Run JOSM with FMTM:
+- Run JOSM with FMTM via Just:
 
 ```bash
-docker compose \
-  -f docker-compose.yml \
-  -f josm/docker-compose.yml \
-  up -d
+just start josm
 ```
 
 This adds JOSM to the docker compose stack for local development.
-Access the JOSM Remote API: <http://localhost:8111>
-Access the JOSM GUI in browser: <http://localhost:8112>
 
 You can now call the JOSM API from FMTM and changes will be reflected in the GUI.
 
-## Conclusion
+### Debugging local services on mobile
 
-Running the FMTM project is easy with Docker. You can also run the
-project locally outside of Docker, but it requires more setup. The
-frontend is built with React and Typescript, and the backend is built
-with FastAPI. Use the tips provided to customize and extend the
-functionality of the project.
+- It's difficult to debug services running on localhost from your mobile phone.
+- An easy way to do this is by tunneling: Cloudflare provides a great free
+  solution for this (an alternative is Ngrok).
+- We may also wish to debug our local ODK Central instance forms on our mobile ODK
+  Collect.
+- To handle both of these instances set up tunnels for all services with:
+
+```bash
+just start tunnel
+```
+
+To complete this setup, two additional steps must be complete:
+
+- **Requirement 1**: For login to work, use the temporary login.
+
+- **Requirement 2**: During project creation, set the ODK Central server URL
+  to the provided tunnel URL for the ODK Central API.
+
+  > The credentials for the local ODK Central instance are:
+  > Username: <admin@hotosm.org>
+  > Password: Password1234
+
+Now when you access the project via a QRCode on mobile, the connection to ODK
+Central should work.

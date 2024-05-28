@@ -3,23 +3,23 @@ import storage from 'redux-persist/lib/storage';
 import { LoginStateTypes } from '@/store/types/ILogin';
 
 const initialState: LoginStateTypes = {
-  loginToken: {},
-  authDetails: {},
+  authDetails: null,
+  loginModalOpen: false,
 };
 
 const LoginSlice = CoreModules.createSlice({
   name: 'login',
   initialState: initialState,
   reducers: {
-    SetLoginToken(state, action) {
-      state.loginToken = action.payload;
-    },
-    signOut(state, action) {
-      storage.removeItem('persist:login');
-      state.loginToken = action.payload;
-    },
     setAuthDetails(state, action) {
       state.authDetails = action.payload;
+    },
+    signOut(state) {
+      storage.removeItem('persist:login');
+      state.authDetails = null;
+    },
+    setLoginModalOpen(state, action) {
+      state.loginModalOpen = action.payload;
     },
   },
 });

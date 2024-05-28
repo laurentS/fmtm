@@ -1,11 +1,20 @@
 import { createSlice } from '@reduxjs/toolkit';
 import { TaskStateTypes } from '@/store/types/ITask';
-import { taskInfoType } from '@/models/task/taskModel';
+import { taskSubmissionInfoType } from '@/models/task/taskModel';
+import { EntityOsmMap } from '@/store/types/IProject';
+import { task_status } from '@/types/enums';
 
 const initialState: TaskStateTypes = {
   taskLoading: false,
   taskInfo: [],
   selectedTask: null,
+  selectedFeatureProps: {
+    osm_id: 0,
+    tags: '',
+    timestamp: '',
+    version: 0,
+    changeset: 0,
+  },
   projectBoundaryLoading: false,
   projectBoundary: [],
   convertToOsmLoading: false,
@@ -13,40 +22,67 @@ const initialState: TaskStateTypes = {
   downloadSubmissionLoading: { type: '', loading: false },
   convertXMLToJOSMLoading: false,
   josmEditorError: null,
-  taskData: { feature_count: 0, submission_count: 0, task_count: 0 },
 };
 
 const TaskSlice = createSlice({
   name: 'task',
   initialState: initialState,
   reducers: {
-    SetTaskLoading(state, action) {
-      state.taskLoading = action.payload;
-    },
     GetProjectBoundaryLoading(state, action) {
       state.projectBoundaryLoading = action.payload;
     },
+
     FetchConvertToOsmLoading(state, action) {
       state.convertToOsmLoading = action.payload;
     },
-    FetchTaskInfoDetails(state, action) {
-      const taskInfo: taskInfoType[] = action.payload;
+
+    SetTaskSubmissionStatesLoading(state, action) {
+      state.taskLoading = action.payload;
+    },
+
+    SetTaskSubmissionStates(state, action) {
+      const groupedPayload: Record<string, EntityOsmMap[]> = action.payload.reduce((acc, item) => {
+        if (!acc[item.task_id]) {
+          acc[item.task_id] = [];
+        }
+        acc[item.task_id].push(item);
+        return acc;
+      }, {});
+
+      const taskInfo: taskSubmissionInfoType[] = Object.entries(groupedPayload).map(([taskId, items]) => {
+        // Calculate feature_count
+        const featureCount = items.length;
+
+        // Calculate submission_count and last_submission
+        let submissionCount = 0;
+        let lastSubmission: string | null = null;
+        items.forEach((item) => {
+          if (item.status === task_status.MAPPED) {
+            submissionCount++;
+          }
+          if (item.updated_at && (!lastSubmission || item.updated_at > lastSubmission)) {
+            lastSubmission = item.updated_at;
+          }
+        });
+
+        return {
+          task_id: taskId,
+          index: taskId,
+          submission_count: submissionCount,
+          last_submission: lastSubmission,
+          feature_count: featureCount,
+        };
+      });
 
       state.taskInfo = taskInfo;
-
-      const featureSubmissionCount = taskInfo.reduce(
-        (accumulator, current) => {
-          accumulator.feature_count += current.feature_count;
-          accumulator.submission_count += current.submission_count;
-          return accumulator;
-        },
-        { feature_count: 0, submission_count: 0 },
-      );
-      const tasks = taskInfo.length;
-      state.taskData = { ...featureSubmissionCount, task_count: tasks };
     },
+
     SetSelectedTask(state, action) {
       state.selectedTask = action.payload;
+    },
+
+    SetSelectedFeatureProps(state, action) {
+      state.selectedFeatureProps = action.payload;
     },
 
     GetDownloadProjectBoundary(state, action) {

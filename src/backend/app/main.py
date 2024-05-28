@@ -17,51 +17,79 @@
 #
 """Entrypoint for FastAPI app."""
 
+import json
 import logging
 import sys
 from contextlib import asynccontextmanager
+from pathlib import Path
 
-import sentry_sdk
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse, Response
 from loguru import logger as log
 from osm_fieldwork.xlsforms import xlsforms_path
+from sqlalchemy import text
+from sqlalchemy.orm import Session
 
 from app.__version__ import __version__
 from app.auth import auth_routes
 from app.central import central_routes
-from app.config import settings
+from app.config import MonitoringTypes, settings
 from app.db.database import get_db
 from app.helpers import helper_routes
 from app.models.enums import HTTPStatus
+from app.monitoring import (
+    add_endpoint_profiler,
+    instrument_app_otel,
+    set_otel_tracer,
+    set_sentry_otel_tracer,
+)
 from app.organisations import organisation_routes
 from app.organisations.organisation_crud import init_admin_org
 from app.projects import project_routes
-from app.projects.project_crud import read_xlsforms
+from app.projects.project_crud import read_and_insert_xlsforms
 from app.submissions import submission_routes
 from app.tasks import tasks_routes
 from app.users import user_routes
 
-# Add sentry tracing only in prod
-if not settings.DEBUG:
-    log.info("Adding Sentry tracing")
-    sentry_sdk.init(
-        dsn=settings.SENTRY_DSN,
-        traces_sample_rate=0.1,
-    )
+
+def get_api() -> FastAPI:
+    """Return the FastAPI app, configured for the environment.
+
+    Add endpoint profiler or monitoring setup based on environment.
+    """
+    api = get_application()
+
+    # Add endpoint profiler to check for bottlenecks
+    if settings.DEBUG:
+        add_endpoint_profiler(api)
+
+    # Add monitoring if flag set
+    if settings.MONITORING == MonitoringTypes.SENTRY:
+        log.info("Adding Sentry OpenTelemetry monitoring config")
+        set_sentry_otel_tracer(settings.monitoring_config.SENTRY_DSN)
+        instrument_app_otel(api)
+    elif settings.MONITORING == MonitoringTypes.OPENOBSERVE:
+        log.info("Adding OpenObserve OpenTelemetry monitoring config")
+        set_otel_tracer(api, settings.monitoring_config.otel_exporter_otpl_endpoint)
+        # set_otel_logger(settings.monitoring_config.otel_exporter_otpl_endpoint)
+        instrument_app_otel(api)
+
+    return api
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(
+    app: FastAPI,  # dead: disable
+):
     """FastAPI startup/shutdown event."""
     log.debug("Starting up FastAPI server.")
     db_conn = next(get_db())
     log.debug("Initialising admin org and user in DB.")
     await init_admin_org(db_conn)
     log.debug("Reading XLSForms from DB.")
-    await read_xlsforms(db_conn, xlsforms_path)
+    await read_and_insert_xlsforms(db_conn, xlsforms_path)
 
     yield
 
@@ -130,6 +158,9 @@ def get_logger():
         if logger_name == "sqlalchemy":
             # Don't hook sqlalchemy, very verbose
             continue
+        if logger_name == "urllib3":
+            # Don't hook urllib3, called on each OTEL trace
+            continue
         if "." not in logger_name:
             logging.getLogger(logger_name).addHandler(InterceptHandler())
 
@@ -159,41 +190,16 @@ def get_logger():
             # format=log_json_format, # JSON format func
         )
 
-    log.add(
-        "/opt/logs/create_project.json",
-        level=settings.LOG_LEVEL,
-        enqueue=True,
-        serialize=True,
-        rotation="00:00",
-        retention="10 days",
-        filter=lambda record: record["extra"].get("task") == "create_project",
-    )
 
-
-api = get_application()
-
-
-# Add endpoint profiler to check for bottlenecks
-if settings.DEBUG:
-    from pyinstrument import Profiler
-
-    @api.middleware("http")
-    async def profile_request(request: Request, call_next):
-        """Calculate the execution time for routes."""
-        profiling = request.query_params.get("profile", False)
-        if profiling:
-            profiler = Profiler(interval=0.001, async_mode="enabled")
-            profiler.start()
-            await call_next(request)
-            profiler.stop()
-            return HTMLResponse(profiler.output_html())
-        else:
-            return await call_next(request)
+api = get_api()
 
 
 @api.exception_handler(RequestValidationError)
-async def validation_exception_handler(request: Request, exc: RequestValidationError):
-    """Exception handler for more descriptive logging."""
+async def validation_exception_handler(
+    request: Request,  # dead: disable
+    exc: RequestValidationError,
+):
+    """Exception handler for more descriptive logging and traces."""
     status_code = 500
     errors = []
     for error in exc.errors():
@@ -216,3 +222,46 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 async def home():
     """Redirect home to docs."""
     return RedirectResponse("/docs")
+
+
+@api.get("/__version__")
+async def deployment_details():
+    """Mozilla Dockerflow Spec: source, version, commit, and link to CI build."""
+    details = {}
+
+    version_path = Path("/opt/version.json")
+    if version_path.exists():
+        with open(version_path, "r") as version_file:
+            details = json.load(version_file)
+    commit = details.get("commit", "commit key was not found in file!")
+    build = details.get("build", "build key was not found in file!")
+
+    return JSONResponse(
+        status_code=HTTPStatus.OK,
+        content={
+            "source": "https://github.com/hotosm/fmtm",
+            "version": __version__,
+            "commit": commit or "/app/version.json not found",
+            "build": build or "/app/version.json not found",
+        },
+    )
+
+
+@api.get("/__heartbeat__")
+async def heartbeat_plus_db(db: Session = Depends(get_db)):
+    """Heartbeat that checks that API and DB are both up and running."""
+    try:
+        db.execute(text("SELECT 1"))
+        return Response(status_code=HTTPStatus.OK)
+    except Exception as e:
+        log.warning(e)
+        log.warning("Server failed __heartbeat__ database connection check")
+        return JSONResponse(
+            status_code=HTTPStatus.INTERNAL_SERVER_ERROR, content={"error": str(e)}
+        )
+
+
+@api.get("/__lbheartbeat__")
+async def simple_heartbeat():
+    """Simple ping/pong API response."""
+    return Response(status_code=HTTPStatus.OK)

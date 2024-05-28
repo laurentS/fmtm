@@ -26,18 +26,8 @@ export interface ProjectDetailsModel {
   tasks: {
     id: number;
     project_id: number;
-    project_task_index: number;
+    index: number;
     outline_geojson: {
-      type: string;
-      geometry: {
-        coordinates: [string, string];
-        type: string;
-      };
-      properties: Record<string, any>;
-      id: string;
-      bbox: [string, string, string, string];
-    };
-    outline_centroid: {
       type: string;
       geometry: {
         coordinates: [string, string];

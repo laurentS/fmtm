@@ -17,20 +17,17 @@
 #
 """Routes for FMTM tasks."""
 
+import asyncio
 from datetime import datetime, timedelta
-from typing import List, Optional
+from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException
-from loguru import logger as log
 from sqlalchemy.orm import Session
-from sqlalchemy.sql import text
 
-from app.auth.osm import AuthUser, login_required
+from app.auth.osm import AuthUser
 from app.auth.roles import get_uid, mapper
-from app.central import central_crud
 from app.db import database
 from app.models.enums import TaskStatus
-from app.projects import project_crud, project_deps
 from app.tasks import tasks_crud, tasks_schemas
 
 router = APIRouter(
@@ -122,7 +119,7 @@ async def get_specific_task(task_id: int, db: Session = Depends(database.get_db)
 
 
 @router.post(
-    "/{task_id}/new_status/{new_status}", response_model=tasks_schemas.ReadTask
+    "/{task_id}/new-status/{new_status}", response_model=tasks_schemas.TaskHistoryOut
 )
 async def update_task_status(
     task_id: int,
@@ -133,89 +130,16 @@ async def update_task_status(
     """Update the task status."""
     user_id = await get_uid(current_user)
     task = await tasks_crud.update_task_status(db, user_id, task_id, new_status)
-    updated_task = await tasks_crud.update_task_history(task, db)
     if not task:
         raise HTTPException(status_code=404, detail="Task status could not be updated.")
-    return updated_task
-
-
-@router.get("/features/")
-async def task_features_count(
-    project_id: int,
-    db: Session = Depends(database.get_db),
-):
-    """Get all features within a task area."""
-    # Get the project object.
-    project = await project_crud.get_project(db, project_id)
-
-    # ODK Credentials
-    odk_credentials = await project_deps.get_odk_credentials(db, project_id)
-
-    odk_details = central_crud.list_odk_xforms(project.odkid, odk_credentials, True)
-
-    # Assemble the final data list
-    data = []
-    feature_count_query = text(
-        """
-        SELECT id, feature_count
-        FROM tasks
-        WHERE project_id = :project_id;
-    """
-    )
-    result = db.execute(feature_count_query, {"project_id": project_id})
-    feature_counts = result.all()
-
-    if not feature_counts:
-        msg = f"To tasks found for project {project_id}"
-        log.warning(msg)
-        raise HTTPException(status_code=404, detail=msg)
-
-    feature_count_task_dict = {f"{record[0]}": record[1] for record in feature_counts}
-
-    project_name_prefix = project.project_name_prefix
-
-    for x in odk_details:
-        # Strip everything except task id from xmlFormId
-        task_id = f"{x['xmlFormId']}".strip(f"{project_name_prefix}_task_")
-
-        data.append(
-            {
-                "task_id": task_id,
-                "submission_count": x["submissions"],
-                "last_submission": x["lastSubmission"],
-                "feature_count": feature_count_task_dict[task_id],
-            }
-        )
-
-    return data
-
-
-@router.get("/task-comments/", response_model=list[tasks_schemas.TaskCommentResponse])
-async def task_comments(
-    project_id: int,
-    task_id: int,
-    db: Session = Depends(database.get_db),
-):
-    """Retrieve a list of task comments for a specific project and task.
-
-    Args:
-        project_id (int): The ID of the project.
-        task_id (int): The ID of the task.
-        db (Session, optional): The database session.
-
-    Returns:
-        List[tasks_schemas.TaskCommentResponse]: A list of task comments.
-    """
-    task_comment_list = await tasks_crud.get_task_comments(db, project_id, task_id)
-
-    return task_comment_list
+    return await tasks_crud.update_task_history(task, db)
 
 
 @router.post("/task-comments/", response_model=tasks_schemas.TaskCommentResponse)
 async def add_task_comments(
     comment: tasks_schemas.TaskCommentRequest,
     db: Session = Depends(database.get_db),
-    user_data: AuthUser = Depends(login_required),
+    user_data: AuthUser = Depends(mapper),
 ):
     """Create a new task comment.
 
@@ -248,38 +172,39 @@ async def task_activity(
 
     """
     end_date = datetime.now() - timedelta(days=days)
-    task_history = await tasks_crud.get_project_task_history(project_id, end_date, db)
-
+    task_list = await tasks_crud.get_task_id_list(db, project_id)
+    tasks = []
+    for task_id in task_list:
+        tasks.extend(
+            [tasks_crud.get_project_task_history(task_id, False, end_date, db)]
+        )
+    task_history = await asyncio.gather(*tasks)
     return await tasks_crud.count_validated_and_mapped_tasks(
         task_history,
         end_date,
     )
 
 
-@router.get("/task_history/")
+@router.get("/{task_id}/history/", response_model=List[tasks_schemas.TaskHistoryOut])
 async def task_history(
-    project_id: int,
+    task_id: int,
     days: int = 10,
     comment: bool = False,
-    task_id: Optional[int] = None,
     db: Session = Depends(database.get_db),
 ):
     """Get the detailed task history for a project.
 
     Args:
-        project_id (int): The ID of the project.
+        task_id (int): The unique task ID in the database.
         days (int): The number of days to consider for the
             task activity (default: 10).
         comment (bool): True or False, True to get comments
             from the project tasks and False by default for
             entire task status history.
-        task_id (int): The task_id of the project.
         db (Session): The database session.
 
     Returns:
         List[TaskHistory]: A list of task history.
     """
     end_date = datetime.now() - timedelta(days=days)
-    return await tasks_crud.get_project_task_history(
-        project_id, comment, end_date, task_id, db
-    )
+    return await tasks_crud.get_project_task_history(task_id, comment, end_date, db)

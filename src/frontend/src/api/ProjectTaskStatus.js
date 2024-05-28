@@ -1,50 +1,44 @@
 import { ProjectActions } from '@/store/slices/ProjectSlice';
-import { easeIn, easeOut } from 'ol/easing';
 import { HomeActions } from '@/store/slices/HomeSlice';
 import CoreModules from '@/shared/CoreModules';
 import { CommonActions } from '@/store/slices/CommonSlice';
-import { task_priority_str } from '@/types/enums';
+import { task_status } from '@/types/enums';
 
 const UpdateTaskStatus = (url, style, existingData, currentProjectId, feature, map, view, taskId, body, params) => {
   return async (dispatch) => {
-    const index = existingData.findIndex((project) => project.id == currentProjectId);
     const updateTask = async (url, existingData, body, feature, params) => {
       try {
         dispatch(CommonActions.SetLoading(true));
 
         const response = await CoreModules.axios.post(url, body, { params });
-        const findIndexForUpdation = existingData[index].taskBoundries.findIndex((obj) => obj.id == response.data.id);
-        console.log(response, 'response');
-
-        let project_tasks = [...existingData[index].taskBoundries];
-        project_tasks[findIndexForUpdation] = {
-          ...response.data,
-          task_status: task_priority_str[response.data.task_status],
-        };
-        console.log(project_tasks, 'project_tasks');
-
-        let updatedProject = [...existingData];
-        const finalProjectOBJ = {
-          id: updatedProject[index].id,
-          taskBoundries: project_tasks,
-        };
-        updatedProject[index] = finalProjectOBJ;
-
-        dispatch(ProjectActions.SetProjectTaskBoundries(updatedProject));
-        console.log(updatedProject, 'updatedProject');
+        dispatch(ProjectActions.UpdateProjectTaskActivity(response.data));
 
         await feature.setStyle(style);
+
+        // assign userId to locked_by_user if status is locked_for_mapping or locked_for_validation
+        const prevProperties = feature.getProperties();
+        const isTaskLocked = ['LOCKED_FOR_MAPPING', 'LOCKED_FOR_VALIDATION'].includes(response.data.status);
+        const updatedProperties = { ...prevProperties, locked_by_user: isTaskLocked ? body.id : null };
+        feature.setProperties(updatedProperties);
+
+        dispatch(
+          ProjectActions.UpdateProjectTaskBoundries({
+            projectId: currentProjectId,
+            taskId,
+            locked_by_uid: body?.id,
+            locked_by_username: body?.username,
+          }),
+        );
         dispatch(CommonActions.SetLoading(false));
         dispatch(
           HomeActions.SetSnackBar({
             open: true,
-            message: `Task #${response.data.id} has been updated to ${task_priority_str[response.data.task_status]}`,
+            message: `Task #${taskId} has been updated to ${response.data.status}`,
             variant: 'success',
             duration: 3000,
           }),
         );
       } catch (error) {
-        console.log(error, 'error');
         dispatch(CommonActions.SetLoading(false));
         dispatch(
           HomeActions.SetSnackBar({
@@ -57,9 +51,6 @@ const UpdateTaskStatus = (url, style, existingData, currentProjectId, feature, m
       }
     };
     await updateTask(url, existingData, body, feature, params);
-    const centroid = await existingData[index].taskBoundries.filter((task) => {
-      return task.id == taskId;
-    })[0].outline_centroid.geometry.coordinates;
   };
 };
 

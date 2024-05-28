@@ -11,13 +11,14 @@ import {
   ProjectSubmissionInfographicsService,
   ValidatedVsMappedInfographicsService,
 } from '@/api/SubmissionService';
-import environment from '@/environment';
 import {
   submissionContributorsTypes,
   submissionInfographicsTypes,
-  taskDataTypes,
   validatedVsMappedInfographicsTypes,
 } from '@/models/submission/submissionModel';
+import { taskSubmissionInfoType } from '@/models/task/taskModel';
+
+import useDocumentTitle from '@/utilfunctions/useDocumentTitle';
 
 const lineKeyData = [
   {
@@ -89,6 +90,7 @@ const lineKeyData = [
 ];
 
 const SubmissionsInfographics = ({ toggleView }) => {
+  useDocumentTitle('Submission Infographics');
   const formSubmissionRef = useRef(null);
   const projectProgressRef = useRef(null);
   const totalContributorsRef = useRef(null);
@@ -96,8 +98,7 @@ const SubmissionsInfographics = ({ toggleView }) => {
   const dispatch = CoreModules.useAppDispatch();
 
   const params = CoreModules.useParams();
-  const encodedId = params.projectId;
-  const decodedId = environment.decode(encodedId);
+  const projectId = params.projectId;
 
   const submissionInfographicsData: submissionInfographicsTypes[] = CoreModules.useAppSelector(
     (state) => state.submission.submissionInfographics,
@@ -118,25 +119,25 @@ const SubmissionsInfographics = ({ toggleView }) => {
   const validatedVsMappedLoading: boolean = CoreModules.useAppSelector(
     (state) => state.submission.validatedVsMappedLoading,
   );
-  const taskData: taskDataTypes = CoreModules.useAppSelector((state) => state.task.taskData);
+  const taskInfo: taskSubmissionInfoType = CoreModules.useAppSelector((state) => state.task.taskInfo);
   const taskLoading: boolean = CoreModules.useAppSelector((state) => state.task.taskLoading);
 
   useEffect(() => {
     dispatch(
       ProjectSubmissionInfographicsService(
-        `${import.meta.env.VITE_API_URL}/submission/submission_page/${decodedId}?days=${submissionProjection}`,
+        `${import.meta.env.VITE_API_URL}/submission/submission_page/${projectId}?days=${submissionProjection}`,
       ),
     );
   }, [submissionProjection]);
 
   useEffect(() => {
     dispatch(
-      ValidatedVsMappedInfographicsService(`${import.meta.env.VITE_API_URL}/tasks/activity/?project_id=${decodedId}`),
+      ValidatedVsMappedInfographicsService(`${import.meta.env.VITE_API_URL}/tasks/activity/?project_id=${projectId}`),
     );
   }, []);
 
   useEffect(() => {
-    dispatch(ProjectContributorsService(`${import.meta.env.VITE_API_URL}/projects/contributors/${decodedId}`));
+    dispatch(ProjectContributorsService(`${import.meta.env.VITE_API_URL}/projects/contributors/${projectId}`));
   }, []);
 
   const FormSubmissionSubHeader = () => (
@@ -160,19 +161,20 @@ const SubmissionsInfographics = ({ toggleView }) => {
     </div>
   );
 
+  const totalFeatureCount = taskInfo.reduce((total, task) => total + task.feature_count, 0);
+  const totalSubmissionCount = taskInfo.reduce((total, task) => total + task.submission_count, 0);
+  const totalTaskCount = taskInfo.length;
   const projectProgressData = [
     {
       names: 'Current',
       value:
-        taskData?.submission_count > taskData?.feature_count ||
-        (taskData?.submission_count === 0 && taskData?.feature_count === 0)
+        totalSubmissionCount > totalFeatureCount || (totalSubmissionCount === 0 && totalFeatureCount === 0)
           ? 100
-          : taskData?.submission_count,
+          : totalSubmissionCount,
     },
     {
       names: 'Remaining',
-      value:
-        taskData?.submission_count > taskData?.feature_count ? 0 : taskData?.feature_count - taskData?.submission_count,
+      value: totalSubmissionCount > totalFeatureCount ? 0 : totalFeatureCount - totalSubmissionCount,
     },
   ];
 

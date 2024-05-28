@@ -30,12 +30,12 @@ from pydantic.functional_validators import field_validator, model_validator
 from shapely import wkb
 from typing_extensions import Self
 
-from app.config import HttpUrlStr, decrypt_value, encrypt_value
-from app.db import db_models
+from app.config import HttpUrlStr, decrypt_value, encrypt_value, settings
 from app.db.postgis_utils import (
     geojson_to_geometry,
     geometry_to_geojson,
     get_address_from_lat_lon,
+    merge_multipolygon,
     read_wkb,
     write_wkb,
 )
@@ -44,8 +44,8 @@ from app.tasks import tasks_schemas
 from app.users.user_schemas import User
 
 
-class ODKCentralIn(BaseModel):
-    """ODK Central credentials inserted to database."""
+class ODKCentral(BaseModel):
+    """ODK Central credentials."""
 
     odk_central_url: Optional[HttpUrlStr] = None
     odk_central_user: Optional[str] = None
@@ -81,6 +81,10 @@ class ODKCentralIn(BaseModel):
             log.debug(err)
             raise ValueError(err)
         return self
+
+
+class ODKCentralIn(ODKCentral):
+    """ODK Central credentials inserted to database."""
 
     @field_validator("odk_central_password", mode="after")
     @classmethod
@@ -137,6 +141,7 @@ class ProjectIn(BaseModel):
 
     project_info: ProjectInfo
     xform_category: str
+    custom_tms_url: Optional[str] = None
     organisation_id: Optional[int] = None
     hashtags: Optional[List[str]] = None
     task_split_type: Optional[TaskSplitType] = None
@@ -144,8 +149,7 @@ class ProjectIn(BaseModel):
     task_num_buildings: Optional[int] = None
     data_extract_type: Optional[str] = None
     outline_geojson: Union[FeatureCollection, Feature, Polygon]
-    # city: str
-    # country: str
+    location_str: Optional[str] = None
 
     @computed_field
     @property
@@ -153,7 +157,9 @@ class ProjectIn(BaseModel):
         """Compute WKBElement geom from geojson."""
         if not self.outline_geojson:
             return None
-        return geojson_to_geometry(self.outline_geojson)
+        outline = merge_multipolygon(self.outline_geojson)
+
+        return geojson_to_geometry(outline)
 
     @computed_field
     @property
@@ -165,17 +171,6 @@ class ProjectIn(BaseModel):
 
     @computed_field
     @property
-    def location_str(self) -> Optional[str]:
-        """Compute geocoded location string from centroid."""
-        if not self.centroid:
-            return None
-        geom = read_wkb(self.centroid)
-        latitude, longitude = geom.y, geom.x
-        address = get_address_from_lat_lon(latitude, longitude)
-        return address if address is not None else ""
-
-    @computed_field
-    @property
     def project_name_prefix(self) -> str:
         """Compute project name prefix with underscores."""
         return self.project_info.name.replace(" ", "_").lower()
@@ -184,9 +179,6 @@ class ProjectIn(BaseModel):
     @classmethod
     def prepend_hash_to_tags(cls, hashtags: List[str]) -> Optional[List[str]]:
         """Add '#' to hashtag if missing. Also added default '#FMTM'."""
-        if not hashtags:
-            return None
-
         hashtags_with_hash = [
             f"#{hashtag}" if hashtag and not hashtag.startswith("#") else hashtag
             for hashtag in hashtags
@@ -196,6 +188,27 @@ class ProjectIn(BaseModel):
             hashtags_with_hash.append("#FMTM")
 
         return hashtags_with_hash
+
+    @model_validator(mode="after")
+    def generate_location_str(self) -> Self:
+        """Generate location string after centroid is generated.
+
+        NOTE chaining computed_field didn't seem to work here so a
+        model_validator was used for final stage validation.
+        """
+        if not self.centroid:
+            log.warning("Project has no centroid, location string not determined")
+            return self
+
+        if self.location_str is not None:
+            # Prevent running triggering multiple times if already set
+            return self
+
+        geom = read_wkb(self.centroid)
+        latitude, longitude = geom.y, geom.x
+        address = get_address_from_lat_lon(latitude, longitude)
+        self.location_str = address if address is not None else ""
+        return self
 
 
 class ProjectUpload(ProjectIn, ODKCentralIn):
@@ -212,6 +225,12 @@ class ProjectPartialUpdate(BaseModel):
     description: Optional[str] = None
     hashtags: Optional[List[str]] = None
     per_task_instructions: Optional[str] = None
+
+    @computed_field
+    @property
+    def project_name_prefix(self) -> str:
+        """Compute project name prefix with underscores."""
+        return self.name.replace(" ", "_").lower()
 
 
 class ProjectUpdate(ProjectIn):
@@ -230,11 +249,11 @@ class GeojsonFeature(BaseModel):
 class ProjectSummary(BaseModel):
     """Project summaries."""
 
-    id: int = -1
-    priority: ProjectPriority = ProjectPriority.MEDIUM
-    priority_str: str = priority.name
+    id: int
+    priority: ProjectPriority
     title: Optional[str] = None
-    centroid: Optional[list[float]] = None
+    # NOTE we cannot be WKBElement element here, as it can't be serialized
+    centroid: Optional[Any]
     location_str: Optional[str] = None
     description: Optional[str] = None
     total_tasks: Optional[int] = None
@@ -246,42 +265,14 @@ class ProjectSummary(BaseModel):
     organisation_id: Optional[int] = None
     organisation_logo: Optional[str] = None
 
-    @classmethod
-    def from_db_project(
-        cls,
-        project: db_models.DbProject,
-    ) -> "ProjectSummary":
-        """Generate model from database obj."""
-        priority = project.priority
-        centroid_coords = []
-        if project.centroid:
-            centroid_point = read_wkb(project.centroid)
-            # NOTE format x,y (lon,lat) required for GeoJSON
-            centroid_coords = [centroid_point.x, centroid_point.y]
-
-        return cls(
-            id=project.id,
-            priority=priority,
-            priority_str=priority.name,
-            title=project.title,
-            centroid=centroid_coords,
-            location_str=project.location_str,
-            description=project.description,
-            total_tasks=project.total_tasks,
-            tasks_mapped=project.tasks_mapped,
-            num_contributors=project.num_contributors,
-            tasks_validated=project.tasks_validated,
-            tasks_bad=project.tasks_bad,
-            hashtags=project.hashtags,
-            organisation_id=project.organisation_id,
-            organisation_logo=project.organisation_logo,
-        )
-
-    # @field_serializer("centroid")
-    # def get_coord_from_centroid(self, value):
-    #     """Get the cetroid coordinates from WBKElement."""
-    #     if value is None:
-    #         return None
+    @field_serializer("centroid")
+    def get_coord_from_centroid(self, value) -> Optional[list[float]]:
+        """Get the cetroid coordinates from WBKElement."""
+        if value is None:
+            return None
+        centroid_point = read_wkb(value)
+        centroid = [centroid_point.x, centroid_point.y]
+        return centroid
 
 
 class PaginationInfo(BaseModel):
@@ -329,6 +320,18 @@ class ProjectBase(BaseModel):
         bbox = geometry.bounds  # Calculate bounding box
         return geometry_to_geojson(self.outline, {"id": self.id, "bbox": bbox}, self.id)
 
+    @computed_field
+    @property
+    def organisation_logo(self) -> Optional[str]:
+        """Get the organisation logo url from the S3 bucket."""
+        if not self.organisation_id:
+            return None
+
+        return (
+            f"{settings.S3_DOWNLOAD_ROOT}/{settings.S3_BUCKET_NAME}"
+            f"/{self.organisation_id}/logo.png"
+        )
+
 
 class ProjectWithTasks(ProjectBase):
     """Project plus list of tasks objects."""
@@ -345,9 +348,19 @@ class ProjectOut(ProjectWithTasks):
 class ReadProject(ProjectWithTasks):
     """Redundant model for refactor."""
 
+    odk_token: Optional[str] = None
     project_uuid: uuid.UUID = uuid.uuid4()
     location_str: Optional[str] = None
     data_extract_url: Optional[str] = None
+    custom_tms_url: Optional[str] = None
+
+    @field_serializer("odk_token")
+    def decrypt_password(self, value: str) -> Optional[str]:
+        """Decrypt the ODK Token extracted from the db."""
+        if not value:
+            return ""
+
+        return decrypt_value(value)
 
 
 class BackgroundTaskStatus(BaseModel):

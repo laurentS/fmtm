@@ -17,6 +17,9 @@ export const initialState: CreateProjectStateTypes = {
     organisation_id: null,
     per_task_instructions: '',
     formWays: 'existing_form',
+    hasCustomTMS: false,
+    custom_tms_url: '',
+    hasGeojsonLineString: true,
   },
   projectDetailsResponse: null,
   projectDetailsLoading: false,
@@ -29,8 +32,6 @@ export const initialState: CreateProjectStateTypes = {
   organisationList: [],
   organisationListLoading: false,
   generateQrSuccess: null,
-  generateProjectLogLoading: false,
-  generateProjectLog: null,
   createProjectStep: 1,
   dividedTaskLoading: false,
   dividedTaskGeojson: null,
@@ -89,8 +90,6 @@ const CreateProject = createSlice({
       state.dataExtractGeojson = null;
       state.taskSplittingGeojson = null;
       state.drawnGeojson = null;
-      state.generateProjectLog = null;
-      state.generateProjectLogLoading = false;
       state.isUnsavedChanges = false;
       state.uploadAreaSelection = '';
       state.dividedTaskGeojson = null;
@@ -129,12 +128,6 @@ const CreateProject = createSlice({
     },
     SetGenerateProjectQRSuccess(state, action) {
       state.generateQrSuccess = action.payload;
-    },
-    GenerateProjectLogLoading(state, action) {
-      state.generateProjectLogLoading = action.payload;
-    },
-    SetGenerateProjectLog(state, action) {
-      state.generateProjectLog = action.payload;
     },
     SetCreateProjectFormStep(state, action) {
       state.createProjectStep = action.payload;

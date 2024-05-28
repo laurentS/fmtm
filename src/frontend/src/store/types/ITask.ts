@@ -1,10 +1,10 @@
-import { taskDataTypes } from '@/models/submission/submissionModel';
-import { taskInfoType } from '@/models/task/taskModel';
+import { taskSubmissionInfoType } from '@/models/task/taskModel';
 
 export type TaskStateTypes = {
   taskLoading: boolean;
-  taskInfo: taskInfoType[];
+  taskInfo: taskSubmissionInfoType[];
   selectedTask: number | null;
+  selectedFeatureProps: TaskFeatureSelectionProperties;
   projectBoundaryLoading: boolean;
   projectBoundary: [];
   convertToOsmLoading: boolean;
@@ -12,10 +12,17 @@ export type TaskStateTypes = {
   downloadSubmissionLoading: downloadSubmissionLoadingTypes;
   convertXMLToJOSMLoading: boolean;
   josmEditorError: null | string;
-  taskData: taskDataTypes;
 };
 
 type downloadSubmissionLoadingTypes = {
   type: '' | 'json' | 'csv';
   loading: boolean;
+};
+
+export type TaskFeatureSelectionProperties = {
+  osm_id: number;
+  tags: string;
+  timestamp: string;
+  version: number;
+  changeset: number;
 };

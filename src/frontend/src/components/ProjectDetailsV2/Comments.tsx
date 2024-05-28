@@ -4,7 +4,6 @@ import Button from '@/components/common/Button';
 import { PostProjectComments, GetProjectComments } from '@/api/Project';
 import { useDispatch } from 'react-redux';
 import { useParams } from 'react-router-dom';
-import environment from '@/environment';
 import { useAppSelector } from '@/types/reduxTypes';
 import AssetModules from '@/shared/AssetModules';
 import { ProjectCommentsSekeletonLoader } from '@/components/ProjectDetailsV2/SkeletonLoader';
@@ -14,22 +13,26 @@ import { CommonActions } from '@/store/slices/CommonSlice';
 const Comments = () => {
   const dispatch = useDispatch();
   const params = useParams();
+  const projectId: any = params.id;
+
   const [comment, setComment] = useState('');
   const [isEditorEmpty, setIsEditorEmpty] = useState(true);
   const projectCommentsList = useAppSelector((state) => state?.project?.projectCommentsList);
   const projectGetCommentsLoading = useAppSelector((state) => state?.project?.projectGetCommentsLoading);
   const projectPostCommentsLoading = useAppSelector((state) => state?.project?.projectPostCommentsLoading);
   const selectedTask = useAppSelector((state) => state.task.selectedTask);
-
-  const projectId = environment.decode(params.id);
+  const projectData = useAppSelector((state) => state.project.projectTaskBoundries);
+  const projectIndex = projectData.findIndex((project) => project.id == +projectId);
+  const taskBoundaryData = useAppSelector((state) => state.project.projectTaskBoundries);
+  const currentStatus = {
+    ...taskBoundaryData?.[projectIndex]?.taskBoundries?.filter((task) => {
+      return task?.index == selectedTask;
+    })?.[0],
+  };
 
   useEffect(() => {
-    dispatch(
-      GetProjectComments(
-        `${import.meta.env.VITE_API_URL}/tasks/task-comments/?project_id=${projectId}&task_id=${selectedTask}`,
-      ),
-    );
-  }, [selectedTask, projectId]);
+    dispatch(GetProjectComments(`${import.meta.env.VITE_API_URL}/tasks/${currentStatus?.id}/history/?comment=true`));
+  }, [selectedTask, projectId, currentStatus?.id]);
 
   const clearComment = () => {
     dispatch(ProjectActions.ClearEditorContent(true));
@@ -49,8 +52,8 @@ const Comments = () => {
       return;
     }
     dispatch(
-      PostProjectComments(`${import.meta.env.VITE_API_URL}/tasks/task-comments/`, {
-        task_id: selectedTask,
+      PostProjectComments(`${import.meta.env.VITE_API_URL}/tasks/task-comments/?project_id=${projectId}`, {
+        task_id: currentStatus?.id,
         project_id: projectId,
         comment,
       }),
@@ -81,11 +84,11 @@ const Comments = () => {
                     </div>
                     <div className="fmtm-flex-1 fmtm-flex fmtm-flex-col fmtm-gap-1">
                       <div className="fmtm-flex fmtm-gap-3 fmtm-items-center">
-                        <p>{projectComment?.commented_by}</p>
+                        <p>{projectComment?.username}</p>
                       </div>
                       <div>
                         <RichTextEditor
-                          editorHtmlContent={projectComment?.comment}
+                          editorHtmlContent={projectComment?.action_text}
                           editable={false}
                           className="sm:!fmtm-bg-[#f5f5f5] !fmtm-rounded-none !fmtm-border-none"
                         />
@@ -100,10 +103,10 @@ const Comments = () => {
                             />
                           </div>
                           <p className="fmtm-font-archivo fmtm-text-sm fmtm-text-[#7A7676] fmtm-flex fmtm-gap-2">
-                            <span>{projectComment?.created_at?.split('T')[0]}</span>
+                            <span>{projectComment?.action_date?.split('T')[0]}</span>
                             <span>
-                              {projectComment?.created_at?.split('T')[1].split(':')[0]}:
-                              {projectComment?.created_at?.split('T')[1].split(':')[1]}
+                              {projectComment?.action_date?.split('T')[1].split(':')[0]}:
+                              {projectComment?.action_date?.split('T')[1].split(':')[1]}
                             </span>
                           </p>
                         </div>

@@ -4,7 +4,6 @@ import DeleteTab from '../components/ManageProject/DeleteTab';
 import React, { useEffect, useState } from 'react';
 import AssetModules from '../shared/AssetModules.js';
 import CoreModules from '@/shared/CoreModules';
-import environment from '@/environment';
 import { GetIndividualProjectDetails } from '@/api/CreateProjectService';
 import { useNavigate } from 'react-router-dom';
 import { useAppSelector } from '@/types/reduxTypes';
@@ -18,20 +17,19 @@ const ManageProject = () => {
   const dispatch = CoreModules.useAppDispatch();
   const params = CoreModules.useParams();
   const navigate = useNavigate();
-  const encodedProjectId = params.id;
-  const decodedProjectId = environment.decode(encodedProjectId);
+  const projectId = params.id;
   const [tabView, setTabView] = useState<'users' | 'edit' | string>('users');
   const editProjectDetails = useAppSelector((state) => state.createproject.editProjectDetails);
 
   useEffect(() => {
-    dispatch(GetIndividualProjectDetails(`${import.meta.env.VITE_API_URL}/projects/${decodedProjectId}`));
-  }, [decodedProjectId]);
+    dispatch(GetIndividualProjectDetails(`${import.meta.env.VITE_API_URL}/projects/${projectId}`));
+  }, [projectId]);
 
   return (
     <div className="fmtm-flex fmtm-flex-col sm:fmtm-flex-row fmtm-bg-[#F5F5F5] fmtm-p-5 fmtm-gap-8 fmtm-flex-1">
       <div className="sm:fmtm-w-[15%] sm:fmtm-min-w-[7.3rem] fmtm-flex sm:fmtm-flex-col fmtm-items-center sm:fmtm-items-start fmtm-gap-4 sm:fmtm-gap-0 ">
         <div
-          onClick={() => navigate(`/project_details/${params?.id}`)}
+          onClick={() => navigate(`/project/${params?.id}`)}
           className="fmtm-flex fmtm-items-center sm:fmtm-mb-8 fmtm-cursor-pointer hover:fmtm-text-primaryRed fmtm-duration-300"
         >
           <AssetModules.ArrowBackIosIcon style={{ fontSize: '20px' }} />
@@ -59,9 +57,9 @@ const ManageProject = () => {
         {tabView === 'users' ? (
           <UserTab />
         ) : tabView === 'edit' ? (
-          <EditTab projectId={decodedProjectId} />
+          <EditTab projectId={projectId} />
         ) : (
-          <DeleteTab projectId={decodedProjectId} projectName={editProjectDetails?.name} />
+          <DeleteTab projectId={projectId} projectName={editProjectDetails?.name} />
         )}
       </div>
     </div>

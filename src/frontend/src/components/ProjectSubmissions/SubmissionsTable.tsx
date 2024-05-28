@@ -5,7 +5,6 @@ import windowDimention from '@/hooks/WindowDimension';
 import Table, { TableHeader } from '@/components/common/CustomTable';
 import { SubmissionFormFieldsService, SubmissionTableService } from '@/api/SubmissionService';
 import CoreModules from '@/shared/CoreModules.js';
-import environment from '@/environment';
 import { SubmissionsTableSkeletonLoader } from '@/components/ProjectSubmissions/ProjectSubmissionsSkeletonLoader.js';
 import { Loader2 } from 'lucide-react';
 import { SubmissionActions } from '@/store/slices/SubmissionSlice';
@@ -22,6 +21,7 @@ import UpdateReviewStatusModal from '@/components/ProjectSubmissions/UpdateRevie
 import { projectInfoType } from '@/models/project/projectModel';
 import { useAppSelector } from '@/types/reduxTypes';
 import { camelToFlat } from '@/utilfunctions/commonUtils';
+import useDocumentTitle from '@/utilfunctions/useDocumentTitle';
 
 type filterType = {
   task_id: string | null;
@@ -31,6 +31,7 @@ type filterType = {
 };
 
 const SubmissionsTable = ({ toggleView }) => {
+  useDocumentTitle('Submission Table');
   const [searchParams, setSearchParams] = useSearchParams();
 
   const initialFilterState: filterType = {
@@ -46,8 +47,7 @@ const SubmissionsTable = ({ toggleView }) => {
   const params = CoreModules.useParams();
   const navigate = useNavigate();
 
-  const encodedId = params.projectId;
-  const decodedId = environment.decode(encodedId);
+  const projectId = params.projectId;
   const submissionFormFields = useAppSelector((state) => state.submission.submissionFormFields);
   const submissionTableData = useAppSelector((state) => state.submission.submissionTableData);
   const submissionFormFieldsLoading = useAppSelector((state) => state.submission.submissionFormFieldsLoading);
@@ -96,26 +96,17 @@ const SubmissionsTable = ({ toggleView }) => {
 
   useEffect(() => {
     dispatch(
-      SubmissionFormFieldsService(`${import.meta.env.VITE_API_URL}/submission/submission_form_fields/${decodedId}`),
+      SubmissionFormFieldsService(`${import.meta.env.VITE_API_URL}/submission/submission_form_fields/${projectId}`),
     );
   }, []);
 
   useEffect(() => {
-    if (!filter.task_id) {
-      dispatch(
-        SubmissionTableService(`${import.meta.env.VITE_API_URL}/submission/submission_table/${decodedId}`, {
-          page: paginationPage,
-          ...filter,
-        }),
-      );
-    } else {
-      dispatch(
-        SubmissionTableService(`${import.meta.env.VITE_API_URL}/submission/task_submissions/${decodedId}`, {
-          page: paginationPage,
-          ...filter,
-        }),
-      );
-    }
+    dispatch(
+      SubmissionTableService(`${import.meta.env.VITE_API_URL}/submission/submission_table/${projectId}`, {
+        page: paginationPage,
+        ...filter,
+      }),
+    );
   }, [filter, paginationPage]);
 
   useEffect(() => {
@@ -124,24 +115,15 @@ const SubmissionsTable = ({ toggleView }) => {
 
   const refreshTable = () => {
     dispatch(
-      SubmissionFormFieldsService(`${import.meta.env.VITE_API_URL}/submission/submission_form_fields/${decodedId}`),
+      SubmissionFormFieldsService(`${import.meta.env.VITE_API_URL}/submission/submission_form_fields/${projectId}`),
     );
     dispatch(SubmissionActions.SetSubmissionTableRefreshing(true));
-    if (!filter.task_id) {
-      dispatch(
-        SubmissionTableService(`${import.meta.env.VITE_API_URL}/submission/submission_table/${decodedId}`, {
-          page: paginationPage,
-          ...filter,
-        }),
-      );
-    } else {
-      dispatch(
-        SubmissionTableService(`${import.meta.env.VITE_API_URL}/submission/task_submissions/${decodedId}`, {
-          page: paginationPage,
-          ...filter,
-        }),
-      );
-    }
+    dispatch(
+      SubmissionTableService(`${import.meta.env.VITE_API_URL}/submission/submission_table/${projectId}`, {
+        page: paginationPage,
+        ...filter,
+      }),
+    );
   };
 
   useEffect(() => {
@@ -198,7 +180,7 @@ const SubmissionsTable = ({ toggleView }) => {
   const uploadToJOSM = () => {
     dispatch(
       ConvertXMLToJOSM(
-        `${import.meta.env.VITE_API_URL}/submission/get_osm_xml/${decodedId}`,
+        `${import.meta.env.VITE_API_URL}/submission/get_osm_xml/${projectId}`,
         projectInfo?.outline_geojson?.properties?.bbox,
       ),
     );
@@ -208,13 +190,15 @@ const SubmissionsTable = ({ toggleView }) => {
     if (downloadType === 'csv') {
       dispatch(
         getDownloadProjectSubmission(
-          `${import.meta.env.VITE_API_URL}/submission/download?project_id=${decodedId}&export_json=false`,
+          `${import.meta.env.VITE_API_URL}/submission/download?project_id=${projectId}&export_json=false`,
+          projectInfo?.title,
         ),
       );
     } else if (downloadType === 'json') {
       dispatch(
-        getDownloadProjectSubmissionJson(
-          `${import.meta.env.VITE_API_URL}/submission/download-submission?project_id=${decodedId}`,
+        getDownloadProjectSubmission(
+          `${import.meta.env.VITE_API_URL}/submission/download?project_id=${projectId}&export_json=true`,
+          projectInfo?.title,
         ),
       );
     }
@@ -316,7 +300,7 @@ const SubmissionsTable = ({ toggleView }) => {
                         setSubmittedBy(e.target.value);
                       }}
                     ></input>
-                    <i className="material-icons fmtm-text-[#9B9999] fmtm-cursor-pointer">search</i>
+                    <AssetModules.SearchIcon className="fmtm-text-[#9B9999] fmtm-cursor-pointer" />
                   </div>
                 </div>
                 <Button
@@ -413,7 +397,7 @@ const SubmissionsTable = ({ toggleView }) => {
             rowClassName="codeRow"
             dataFormat={(row) => (
               <div className="fmtm-w-[7rem] fmtm-overflow-hidden fmtm-truncate">
-                <span>{row?.__system?.reviewState ? camelToFlat(row?.__system?.reviewState) : '-'}</span>
+                <span>{row?.__system?.reviewState ? camelToFlat(row?.__system?.reviewState) : 'Recieved'}</span>
               </div>
             )}
           />
@@ -447,7 +431,7 @@ const SubmissionsTable = ({ toggleView }) => {
                 <AssetModules.VisibilityOutlinedIcon
                   className="fmtm-text-[#545454] hover:fmtm-text-primaryRed"
                   onClick={() => {
-                    navigate(`/project/${encodedId}/tasks/${row?.phonenumber}/submission/${row?.meta?.instanceID}`);
+                    navigate(`/project/${projectId}/tasks/${row?.phonenumber}/submission/${row?.meta?.instanceID}`);
                   }}
                 />{' '}
                 <span className="fmtm-text-primaryRed fmtm-border-[1px] fmtm-border-primaryRed fmtm-mx-1"></span>{' '}
@@ -458,8 +442,8 @@ const SubmissionsTable = ({ toggleView }) => {
                       SubmissionActions.SetUpdateReviewStatusModal({
                         toggleModalStatus: true,
                         instanceId: row?.meta?.instanceID,
-                        taskId: row?.phonenumber,
-                        projectId: decodedId,
+                        taskId: row?.all?.task_id,
+                        projectId: projectId,
                         reviewState: row?.__system?.reviewState,
                       }),
                     );

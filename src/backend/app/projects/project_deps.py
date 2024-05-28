@@ -38,6 +38,7 @@ async def get_project_by_id(
     """Get a single project by id."""
     if not project_id:
         # Skip if no project id passed
+        # FIXME why do we need this?
         return None
 
     db_project = db.query(DbProject).filter(DbProject.id == project_id).first()
@@ -45,6 +46,12 @@ async def get_project_by_id(
         raise HTTPException(
             status_code=HTTPStatus.NOT_FOUND,
             detail=f"Project with ID {project_id} does not exist",
+        )
+
+    if db_project.odk_token == "":
+        log.warning(
+            f"Project ({db_project.id}) has no 'odk_token' set. "
+            "The QRCode will not work!"
         )
 
     return db_project
@@ -89,3 +96,28 @@ async def get_odk_credentials(db: Session, project_id: int):
         odk_central_user=user,
         odk_central_password=password,
     )
+
+
+async def get_project_xform(db, project_id):
+    """Retrieve the transformation associated with a specific project.
+
+    Args:
+        db: Database connection object.
+        project_id: The ID of the project to retrieve the transformation for.
+
+    Returns:
+        The transformation record associated with the specified project.
+
+    Raises:
+        None
+    """
+    sql = text(
+        """
+        SELECT * FROM xforms
+        WHERE project_id = :project_id;
+    """
+    )
+
+    result = db.execute(sql, {"project_id": project_id})
+    db_xform = result.first()
+    return db_xform

@@ -39,7 +39,7 @@ from app.s3 import add_obj_to_bucket
 
 async def init_admin_org(db: Session):
     """Init admin org and user at application startup."""
-    sql = text(
+    insert_org_sql = text(
         """
         -- Start a transaction
         BEGIN;
@@ -69,9 +69,14 @@ async def init_admin_org(db: Session):
             :odk_user,
             :odk_pass
         )
-        ON CONFLICT ("name") DO NOTHING;
+        ON CONFLICT ("name") DO NOTHING
+        RETURNING id;
+    """
+    )
 
-        -- Insert svcfmtm admin user
+    insert_users_sql = text(
+        """
+        -- Insert localadmin admin user
         INSERT INTO public.users (
             id,
             username,
@@ -85,11 +90,11 @@ async def init_admin_org(db: Session):
             tasks_invalidated
         )
         VALUES (
-            :user_id,
-            :username,
+            :admin_user_id,
+            :admin_username,
             'ADMIN',
             'Admin',
-            :odk_user,
+            'admin@fmtm.dev',
             true,
             'ADVANCED',
             0,
@@ -98,28 +103,76 @@ async def init_admin_org(db: Session):
         )
         ON CONFLICT ("username") DO NOTHING;
 
-        -- Set svcfmtm user as org admin
+        -- Set localadmin user as org admin
         WITH org_cte AS (
             SELECT id FROM public.organisations
             WHERE name = 'FMTM Public Beta'
         )
         INSERT INTO public.organisation_managers (organisation_id, user_id)
-        SELECT (SELECT id FROM org_cte), :user_id
+        SELECT (SELECT id FROM org_cte), :admin_user_id
         ON CONFLICT DO NOTHING;
+
+        -- Insert svcfmtm user (for temp auth)
+        INSERT INTO public.users (
+            id,
+            username,
+            role,
+            name,
+            email_address,
+            is_email_verified,
+            mapping_level,
+            tasks_mapped,
+            tasks_validated,
+            tasks_invalidated
+        )
+        VALUES (
+            :svc_user_id,
+            :svc_username,
+            'MAPPER',
+            'FMTM Service Account',
+            :odk_user,
+            true,
+            'BEGINNER',
+            0,
+            0,
+            0
+        )
+        ON CONFLICT ("username") DO UPDATE
+        SET
+            role = EXCLUDED.role,
+            mapping_level = EXCLUDED.mapping_level,
+            name = EXCLUDED.name;
 
         -- Commit the transaction
         COMMIT;
     """
     )
 
-    db.execute(
-        sql,
+    result = db.execute(
+        insert_org_sql,
         {
-            "user_id": 20386219,
-            "username": "svcfmtm",
             "odk_url": settings.ODK_CENTRAL_URL,
             "odk_user": settings.ODK_CENTRAL_USER,
             "odk_pass": encrypt_value(settings.ODK_CENTRAL_PASSWD),
+        },
+    )
+
+    # NOTE only upload org logo on first org creation (RETURNING statement)
+    org_id = result.scalar()
+    if org_id:
+        logo_path = "/opt/app/images/hot-org-logo.png"
+        with open(logo_path, "rb") as logo_file:
+            org_logo = UploadFile(BytesIO(logo_file.read()))
+        await upload_logo_to_s3(org_id, org_logo)
+
+    result = db.execute(
+        insert_users_sql,
+        {
+            "admin_user_id": 1,
+            "admin_username": "localadmin",
+            "svc_user_id": 20386219,
+            "svc_username": "svcfmtm",
+            "odk_user": settings.ODK_CENTRAL_USER,
         },
     )
 
@@ -192,22 +245,20 @@ async def get_unapproved_organisations(
     return db.query(db_models.DbOrganisation).filter_by(approved=False)
 
 
-async def upload_logo_to_s3(
-    db_org: db_models.DbOrganisation, logo_file: UploadFile
-) -> str:
+async def upload_logo_to_s3(org_id: int, logo_file: UploadFile) -> str:
     """Upload logo using standardised /{org_id}/logo.png format.
 
     Browsers treat image mimetypes the same, regardless of extension,
     so it should not matter if a .jpg is renamed .png.
 
     Args:
-        db_org(db_models.DbOrganisation): The organisation database object.
-        logo_file(UploadFile): The logo image uploaded to FastAPI.
+        org_id (int): The organisation id in the database.
+        logo_file (UploadFile): The logo image uploaded to FastAPI.
 
     Returns:
         logo_url(str): The S3 URL for the logo file.
     """
-    logo_path = f"/{db_org.id}/logo.png"
+    logo_path = f"/{org_id}/logo.png"
 
     file_bytes = await logo_file.read()
     file_obj = BytesIO(file_bytes)
@@ -265,7 +316,7 @@ async def create_organisation(
 
         # Update the logo field in the database with the correct path
         if logo:
-            db_organisation.logo = await upload_logo_to_s3(db_organisation, logo)
+            db_organisation.logo = await upload_logo_to_s3(db_organisation.id, logo)
         db.commit()
 
     except Exception as e:
@@ -317,7 +368,7 @@ async def update_organisation(
     db.execute(update_cmd)
 
     if logo:
-        organisation.logo = await upload_logo_to_s3(organisation, logo)
+        organisation.logo = await upload_logo_to_s3(organisation.id, logo)
 
     db.commit()
     db.refresh(organisation)

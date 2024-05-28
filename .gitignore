@@ -21,6 +21,7 @@ env/
 build/
 develop-eggs/
 dist/
+dev-dist/
 downloads/
 eggs/
 .eggs/
@@ -89,3 +90,6 @@ envsubst
 
 # Scripts
 **/openapi.json
+
+# Chart dependencies
+chart/charts

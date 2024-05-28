@@ -1,5 +1,5 @@
 site_name: FMTM
-site_description: A project to provide tools for Open Mapping campaigns.
+site_description: Coordinated field mapping for Open Mapping campaigns.
 # strict: true
 site_url: "https://hotosm.github.io/fmtm/"
 
@@ -73,21 +73,27 @@ nav:
       - Code of Conduct: https://docs.hotosm.org/code-of-conduct
       - FAQ: FAQ.md
   - User Manuals:
+      - User Types: user-breakdown.md
       - Project Managers: User-Manual-For-Project-Managers.md
   - Utilities:
       - XLSForm Converter: https://getodk.org/xlsform/
       - QRCode Converter: qrcode-util.md
       - Helpers: https://api.stage.fmtm.hotosm.org/docs#/helper
+  - Example XLSForms: example-xlsforms/README.md
   - API Docs: https://hotosm.github.io/swagger/?url=https://hotosm.github.io/fmtm/openapi.json
   - Dev:
       - Setup: dev/Setup.md
       - Backend: dev/Backend.md
       - Frontend: dev/Frontend.md
       - Production Deployment: dev/Production.md
-      - Deployment Flow: dev/Deployment-Flow.md
+      - Release Cycle: dev/Release-Cycle.md
       - Database Tips: dev/Database-Tips.md
       - Troubleshooting: dev/Troubleshooting.md
       - Pre-Commit: https://docs.hotosm.org/dev-guide/pre-commit/
       - Versioning: https://docs.hotosm.org/dev-guide/version-control/#creating-releases
       - Class Hierarchy: apidocs/html/inherits.html
       - Code Coverage: coverage.html
+  - Roadmap:
+      - Users: user-roadmap.md
+      - Developers: https://roadmap.fmtm.dev
+  - Timeline: timeline.md

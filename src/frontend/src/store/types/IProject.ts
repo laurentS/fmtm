@@ -24,6 +24,9 @@ export type ProjectStateTypes = {
   mobileFooterSelection: string;
   projectDetailsLoading: boolean;
   projectDashboardDetail: projectDashboardDetailTypes;
+  entityOsmMap: EntityOsmMap[];
+  entityOsmMapLoading: boolean;
+  updateEntityStatusLoading: boolean;
   projectDashboardLoading: boolean;
   geolocationStatus: boolean;
   projectCommentsList: projectCommentsListTypes[];
@@ -31,6 +34,17 @@ export type ProjectStateTypes = {
   projectGetCommentsLoading: boolean;
   clearEditorContent: boolean;
   projectOpfsBasemapPath: string | null;
+  projectTaskActivity: projectTaskActivity[];
+  projectActivityLoading: boolean;
+  downloadSubmissionLoading: boolean;
+};
+
+export type EntityOsmMap = {
+  id: string;
+  osm_id: string;
+  status: number;
+  task_id: number;
+  updated_at: string;
 };
 
 type tilesListTypes = {
@@ -41,9 +55,25 @@ type tilesListTypes = {
 };
 
 type projectCommentsListTypes = {
-  comment: string;
-  commented_by: string;
-  created_at: string;
   id: number;
+  project_id: number;
+  action: string;
+  action_text: string;
+  action_date: string;
+  username: string;
   task_id: number;
+  profile_img: string;
+  status: any;
+};
+
+type projectTaskActivity = {
+  id: number;
+  project_id: number;
+  task_id: number;
+  action: string;
+  action_text: string;
+  action_date: string;
+  status: string;
+  profile_img: null | string;
+  username: string;
 };

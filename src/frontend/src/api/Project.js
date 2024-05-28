@@ -1,7 +1,7 @@
 import { ProjectActions } from '@/store/slices/ProjectSlice';
 import { CommonActions } from '@/store/slices/CommonSlice';
 import CoreModules from '@/shared/CoreModules';
-import { task_priority_str } from '@/types/enums';
+import { task_status } from '@/types/enums';
 import axios from 'axios';
 import { writeBinaryToOPFS } from '@/api/Files';
 
@@ -15,13 +15,12 @@ export const ProjectById = (existingProjectList, projectId) => {
         const persistingValues = projectResp.tasks.map((data) => {
           return {
             id: data.id,
+            index: data.project_task_index,
             outline_geojson: data.outline_geojson,
-            outline_centroid: data.outline_centroid,
-            task_status: task_priority_str[data.task_status],
+            task_status: task_status[data.task_status],
             locked_by_uid: data.locked_by_uid,
             locked_by_username: data.locked_by_username,
             task_history: data.task_history,
-            odk_token: data.odk_token,
           };
         });
         // At top level id project id to object
@@ -32,7 +31,6 @@ export const ProjectById = (existingProjectList, projectId) => {
             id: projectResp.id,
             outline_geojson: projectResp.outline_geojson,
             priority: projectResp.priority || 2,
-            priority_str: projectResp.priority_str || 'MEDIUM',
             title: projectResp.project_info?.name,
             location_str: projectResp.location_str,
             description: projectResp.project_info?.description,
@@ -45,6 +43,10 @@ export const ProjectById = (existingProjectList, projectId) => {
             tasks_bad: projectResp.tasks_bad,
             data_extract_url: projectResp.data_extract_url,
             instructions: projectResp?.project_info?.per_task_instructions,
+            odk_token: projectResp?.odk_token,
+            custom_tms_url: projectResp?.custom_tms_url,
+            organisation_id: projectResp?.organisation_id,
+            organisation_logo: projectResp?.organisation_logo,
           }),
         );
         dispatch(ProjectActions.SetProjectDetialsLoading(false));
@@ -144,11 +146,9 @@ export const GenerateProjectTiles = (url, payload) => {
     const generateProjectTiles = async (url, payload) => {
       try {
         const response = await CoreModules.axios.get(url);
-        console.log(response, 'response-mbtiles');
-        dispatch(GetTilesList(`${import.meta.env.VITE_API_URL}/projects/tiles_list/${payload}/`));
+        dispatch(GetTilesList(`${import.meta.env.VITE_API_URL}/projects/${payload}/tiles-list/`));
         dispatch(ProjectActions.SetGenerateProjectTilesLoading(false));
       } catch (error) {
-        console.log(error, 'error-mbtiles');
         dispatch(ProjectActions.SetGenerateProjectTilesLoading(false));
       } finally {
         dispatch(ProjectActions.SetGenerateProjectTilesLoading(false));
@@ -223,6 +223,28 @@ export const GetProjectDashboard = (url) => {
   };
 };
 
+export const GetEntityInfo = (url) => {
+  return async (dispatch) => {
+    const getEntityOsmMap = async (url) => {
+      try {
+        dispatch(ProjectActions.SetEntityToOsmIdMappingLoading(true));
+        dispatch(CoreModules.TaskActions.SetTaskSubmissionStatesLoading(true));
+        const response = await CoreModules.axios.get(url);
+        dispatch(ProjectActions.SetEntityToOsmIdMapping(response.data));
+        dispatch(CoreModules.TaskActions.SetTaskSubmissionStates(response.data));
+        dispatch(ProjectActions.SetEntityToOsmIdMappingLoading(false));
+      } catch (error) {
+        dispatch(ProjectActions.SetEntityToOsmIdMappingLoading(false));
+        dispatch(CoreModules.TaskActions.SetTaskSubmissionStatesLoading(false));
+      } finally {
+        dispatch(ProjectActions.SetEntityToOsmIdMappingLoading(false));
+        dispatch(CoreModules.TaskActions.SetTaskSubmissionStatesLoading(false));
+      }
+    };
+    await getEntityOsmMap(url);
+  };
+};
+
 export const GetProjectComments = (url) => {
   return async (dispatch) => {
     const getProjectComments = async (url) => {
@@ -256,5 +278,69 @@ export const PostProjectComments = (url, payload) => {
       }
     };
     await postProjectComments(url);
+  };
+};
+
+export const GetProjectTaskActivity = (url) => {
+  return async (dispatch) => {
+    const getProjectActivity = async (url) => {
+      try {
+        dispatch(ProjectActions.SetProjectTaskActivityLoading(true));
+        const response = await CoreModules.axios.get(url);
+        dispatch(ProjectActions.SetProjectTaskActivity(response.data));
+        dispatch(ProjectActions.SetProjectTaskActivityLoading(false));
+      } catch (error) {
+        dispatch(ProjectActions.SetProjectTaskActivityLoading(false));
+      } finally {
+        dispatch(ProjectActions.SetProjectTaskActivityLoading(false));
+      }
+    };
+    await getProjectActivity(url);
+  };
+};
+
+export const UpdateEntityStatus = (url, payload) => {
+  return async (dispatch) => {
+    const updateEntityStatus = async (url, payload) => {
+      try {
+        dispatch(ProjectActions.UpdateEntityStatusLoading(true));
+        const response = await CoreModules.axios.post(url, payload);
+        dispatch(ProjectActions.UpdateEntityStatus(response.data));
+        dispatch(ProjectActions.UpdateEntityStatusLoading(false));
+      } catch (error) {
+        dispatch(ProjectActions.UpdateEntityStatusLoading(false));
+      }
+    };
+    await updateEntityStatus(url, payload);
+  };
+};
+
+export const DownloadSubmissionGeojson = (url, projectName) => {
+  return async (dispatch) => {
+    dispatch(ProjectActions.SetDownloadSubmissionGeojsonLoading(true));
+
+    const downloadSubmissionGeojson = async (url) => {
+      try {
+        const response = await CoreModules.axios.get(url, { responseType: 'blob' });
+        const a = document.createElement('a');
+        a.href = window.URL.createObjectURL(response.data);
+        a.download = `${projectName}.geojson`;
+        a.click();
+        dispatch(ProjectActions.SetDownloadSubmissionGeojsonLoading(false));
+      } catch (error) {
+        dispatch(
+          CommonActions.SetSnackBar({
+            open: true,
+            message: 'Failed to download submission geojson.',
+            variant: 'error',
+            duration: 2000,
+          }),
+        );
+        dispatch(ProjectActions.SetDownloadSubmissionGeojsonLoading(false));
+      } finally {
+        dispatch(ProjectActions.SetDownloadSubmissionGeojsonLoading(false));
+      }
+    };
+    await downloadSubmissionGeojson(url);
   };
 };

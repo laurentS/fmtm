@@ -1,13 +1,12 @@
 import * as React from 'react';
 import CustomizedImage from '@/utilities/CustomizedImage';
 import CustomizedProgressBar from '@/utilities/CustomizedProgressBar';
-import environment from '@/environment';
 import { HomeActions } from '@/store/slices/HomeSlice';
 import { HomeProjectCardModel, projectType } from '@/models/home/homeModel';
 import CoreModules from '@/shared/CoreModules';
 import AssetModules from '@/shared/AssetModules';
 
-//Explore Project Card Model to be renderd in home view
+//Explore Project Card Model to be rendered in home view
 export default function ExploreProjectCard({ data }: { data: projectType }) {
   const [shadowBox, setShadowBox] = React.useState<number>(0);
   const dispatch = CoreModules.useAppDispatch();
@@ -60,7 +59,7 @@ export default function ExploreProjectCard({ data }: { data: projectType }) {
         const project: projectType = data;
         // dispatch(ProjectActions.SetProjectTaskBoundries([]))
         dispatch(HomeActions.SetSelectedProject(project));
-        navigate(`/project_details/${environment.encode(data.id)}`);
+        navigate(`/project/${data.id}`);
       }}
       style={cardInnerStyles.card}
       sx={{ boxShadow: 0 }}

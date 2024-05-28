@@ -20,10 +20,10 @@ export type taskHistoryTypes = {
 };
 
 export type taskHistoryListType = {
+  action: string;
   action_date: string;
   action_text: string;
-  changedToStatus: string;
-  id: number;
+  project_id: number;
   outlineGeojson: {
     type: string;
     geometry: {
@@ -35,7 +35,7 @@ export type taskHistoryListType = {
   };
   profile_img: null | string;
   status: string;
-  taskId: string;
+  task_id: number;
   username: string;
 };
 
@@ -54,18 +54,20 @@ export type projectInfoType = {
     id: number;
   };
   priority: number;
-  priority_str: string;
   title: string;
   location_str: string;
   description: string;
   short_description: string;
   xform_category: string;
   data_extract_url: string;
+  odk_token: string;
   num_contributors: any;
   tasks_bad: any;
   tasks_mapped: any;
   tasks_validated: any;
   total_tasks: any;
+  organisation_id: number;
+  organisation_logo: string;
 };
 
 export type downloadProjectFormLoadingType = { type: 'form' | 'geojson' | 'csv' | 'json'; loading: boolean };
@@ -89,20 +91,10 @@ export type projectTaskBoundriesType = {
 export type taskBoundriesTypes = {
   bbox: [number, number];
   id: number;
+  project_task_index: number;
   locked_by_uid: null | string;
   locked_by_username: null | string;
-  odk_token: string;
   outline_geojson: {
-    type: string;
-    geometry: {
-      coordinates: [string, string];
-      type: string;
-    };
-    properties: Record<string, any>;
-    id: string;
-    bbox: [string, string, string, string];
-  };
-  outline_centroid: {
     type: string;
     geometry: {
       coordinates: [string, string];
@@ -114,4 +106,28 @@ export type taskBoundriesTypes = {
   };
   task_history: taskHistoryTypes[];
   task_status: string;
+  index: number;
+};
+
+export type taskBoundriesGeojson = {
+  id: number;
+  outline_geojson: {
+    type: string;
+    geometry: {
+      coordinates: [];
+      type: string;
+    };
+    properties: Record<string, any>;
+    id: string;
+  };
+  outline_centroid: {
+    type: string;
+    geometry: {
+      coordinates: [string, string];
+      type: string;
+    };
+    properties: Record<string, any>;
+    id: string;
+    bbox: [string, string, string, string];
+  };
 };

@@ -2,19 +2,17 @@ import React, { useEffect, useState } from 'react';
 import '../../node_modules/ol/ol.css';
 import '../styles/home.scss';
 import WindowDimension from '@/hooks/WindowDimension';
-// import MapDescriptionComponents from '@/components/MapDescriptionComponents';
 import ActivitiesPanel from '@/components/ProjectDetailsV2/ActivitiesPanel';
-import environment from '@/environment';
-import { ProjectById, GetProjectDashboard } from '@/api/Project';
+import { ProjectById, GetEntityInfo } from '@/api/Project';
 import { ProjectActions } from '@/store/slices/ProjectSlice';
 import CustomizedSnackbar from '@/utilities/CustomizedSnackbar';
 import OnScroll from '@/hooks/OnScroll';
 import { HomeActions } from '@/store/slices/HomeSlice';
 import CoreModules from '@/shared/CoreModules';
 import AssetModules from '@/shared/AssetModules';
-import FmtmLogo from '@/assets/images/hotLog.png';
 import GenerateBasemap from '@/components/GenerateBasemap';
-import TaskSectionPopup from '@/components/ProjectDetailsV2/TaskSectionPopup';
+import TaskSelectionPopup from '@/components/ProjectDetailsV2/TaskSelectionPopup';
+import FeatureSelectionPopup from '@/components/ProjectDetailsV2/FeatureSelectionPopup';
 import DialogTaskActions from '@/components/DialogTaskActions';
 import MobileFooter from '@/components/ProjectDetailsV2/MobileFooter';
 import MobileActivitiesContents from '@/components/ProjectDetailsV2/MobileActivitiesContents';
@@ -27,15 +25,13 @@ import LayerSwitcherControl from '@/components/MapComponent/OpenLayersComponent/
 import MapControlComponent from '@/components/ProjectDetailsV2/MapControlComponent';
 import { VectorLayer } from '@/components/MapComponent/OpenLayersComponent/Layers';
 import { geojsonObjectModel } from '@/constants/geojsonObjectModal';
-import getTaskStatusStyle from '@/utilfunctions/getTaskStatusStyle';
-import { defaultStyles } from '@/components/MapComponent/OpenLayersComponent/helpers/styleUtils';
+import getTaskStatusStyle, { getFeatureStatusStyle } from '@/utilfunctions/getTaskStatusStyle';
 import MapLegends from '@/components/MapLegends';
 import Accordion from '@/components/common/Accordion';
 import AsyncPopup from '@/components/MapComponent/OpenLayersComponent/AsyncPopup/AsyncPopup';
 import Button from '@/components/common/Button';
 import ProjectInfo from '@/components/ProjectDetailsV2/ProjectInfo';
 import useOutsideClick from '@/hooks/useOutsideClick';
-import { dataExtractPropertyType } from '@/models/project/projectModel';
 import { isValidUrl } from '@/utilfunctions/urlChecker';
 import { useAppSelector } from '@/types/reduxTypes';
 import Comments from '@/components/ProjectDetailsV2/Comments';
@@ -43,34 +39,32 @@ import { Geolocation } from '@/utilfunctions/Geolocation';
 import Instructions from '@/components/ProjectDetailsV2/Instructions';
 import { readFileFromOPFS } from '@/api/Files';
 import DebugConsole from '@/utilities/DebugConsole';
+import { CustomCheckbox } from '@/components/common/Checkbox';
+import useDocumentTitle from '@/utilfunctions/useDocumentTitle';
 
 const Home = () => {
+  useDocumentTitle('Project Details');
   const dispatch = CoreModules.useAppDispatch();
   const params = CoreModules.useParams();
   const navigate = useNavigate();
-  const { windowSize, type } = WindowDimension();
+  const { windowSize } = WindowDimension();
   const [divRef, toggle, handleToggle] = useOutsideClick();
 
   const [mainView, setView] = useState<any>();
-  const [featuresLayer, setFeaturesLayer] = useState();
+  const [selectedTaskArea, setSelectedTaskArea] = useState();
+  const [selectedTaskFeature, setSelectedTaskFeature] = useState();
   const [dataExtractUrl, setDataExtractUrl] = useState(null);
   const [dataExtractExtent, setDataExtractExtent] = useState(null);
   const [taskBoundariesLayer, setTaskBoundariesLayer] = useState<null | Record<string, any>>(null);
-  const [currentCoordinate, setCurrentCoordinate] = useState<{ latitude: null | number; longitude: null | number }>({
-    latitude: null,
-    longitude: null,
-  });
   // Can pass a File object, or a string URL to be read by PMTiles
   const [customBasemapData, setCustomBasemapData] = useState<File | string>();
-  const [positionGeojson, setPositionGeojson] = useState<any>(null);
-  const [deviceRotation, setDeviceRotation] = useState(0);
   const [viewState, setViewState] = useState('project_info');
-  const encodedId: string = params.id;
-  const decodedId = environment.decode(encodedId);
+  const projectId: string = params.id;
   const defaultTheme = useAppSelector((state) => state.theme.hotTheme);
   const state = CoreModules.useAppSelector((state) => state.project);
   const projectInfo = useAppSelector((state) => state.home.selectedProject);
   const selectedTask = useAppSelector((state) => state.task.selectedTask);
+  const selectedFeatureProps = useAppSelector((state) => state.task.selectedFeatureProps);
   const stateSnackBar = useAppSelector((state) => state.home.snackbar);
   const mobileFooterSelection = useAppSelector((state) => state.project.mobileFooterSelection);
   const mapTheme = useAppSelector((state) => state.theme.hotTheme);
@@ -78,8 +72,18 @@ const Home = () => {
   const geolocationStatus = useAppSelector((state) => state.project.geolocationStatus);
   const taskModalStatus = CoreModules.useAppSelector((state) => state.project.taskModalStatus);
   const projectOpfsBasemapPath = useAppSelector((state) => state?.project?.projectOpfsBasemapPath);
+  const authDetails = CoreModules.useAppSelector((state) => state.login.authDetails);
+  const entityOsmMap = useAppSelector((state) => state?.project?.entityOsmMap);
 
-  //snackbar handle close funtion
+  useEffect(() => {
+    if (state.projectInfo.title) {
+      document.title = `${state.projectInfo.title} - HOT Field Mapping Tasking Manager`;
+    } else {
+      document.title = 'HOT Field Mapping Tasking Manager';
+    }
+  }, [state.projectInfo.title]);
+
+  //snackbar handle close function
   const handleClose = (event, reason) => {
     if (reason === 'clickaway') {
       return;
@@ -97,17 +101,17 @@ const Home = () => {
   //Fetch project for the first time
   useEffect(() => {
     dispatch(ProjectActions.SetNewProjectTrigger());
-    if (state.projectTaskBoundries.findIndex((project) => project.id == environment.decode(encodedId)) == -1) {
+    if (state.projectTaskBoundries.findIndex((project) => project.id == projectId) == -1) {
       dispatch(ProjectActions.SetProjectTaskBoundries([]));
-      dispatch(ProjectById(state.projectTaskBoundries, environment.decode(encodedId)));
+      dispatch(ProjectById(state.projectTaskBoundries, projectId));
     } else {
       dispatch(ProjectActions.SetProjectTaskBoundries([]));
-      dispatch(ProjectById(state.projectTaskBoundries, environment.decode(encodedId)));
+      dispatch(ProjectById(state.projectTaskBoundries, projectId));
     }
     if (Object.keys(state.projectInfo)?.length == 0) {
       dispatch(ProjectActions.SetProjectInfo(projectInfo));
     } else {
-      if (state.projectInfo.id != environment.decode(encodedId)) {
+      if (state.projectInfo.id != projectId) {
         dispatch(ProjectActions.SetProjectInfo(projectInfo));
       }
     }
@@ -134,8 +138,7 @@ const Home = () => {
       geometry: { ...taskObj.outline_geojson.geometry },
       properties: {
         ...taskObj.outline_geojson.properties,
-        centroid: taskObj.outline_centroid.geometry.coordinates,
-        // TODO add bbox field here too?
+        locked_by_user: taskObj?.locked_by_uid,
       },
       id: `${taskObj.id}_${taskObj.task_status}`,
     }));
@@ -147,44 +150,43 @@ const Home = () => {
     setTaskBoundariesLayer(taskBoundariesFeatcol);
   }, [state.projectTaskBoundries[0]?.taskBoundries?.length]);
 
-  const dataExtractDataPopup = (properties: dataExtractPropertyType) => {
-    return (
-      <div className="fmtm-h-fit">
-        <h2 className="fmtm-border-b-[2px] fmtm-border-primaryRed fmtm-w-fit fmtm-pr-1">
-          OSM ID: #{properties?.osm_id}
-        </h2>
-        <div className="fmtm-flex fmtm-flex-col fmtm-gap-1 fmtm-mt-1">
-          <p>
-            Tags: <span className="fmtm-text-primaryRed">{properties?.tags}</span>
-          </p>
-          <p>
-            Timestamp: <span className="fmtm-text-primaryRed">{properties?.timestamp}</span>
-          </p>
-          <p>
-            Changeset: <span className="fmtm-text-primaryRed">{properties?.changeset}</span>
-          </p>
-          <p>
-            Version: <span className="fmtm-text-primaryRed">{properties?.version}</span>
-          </p>
-        </div>
-      </div>
-    );
-  };
-  const projectClickOnMapTask = (properties, feature) => {
-    setFeaturesLayer(feature);
-    let extent = properties.geometry.getExtent();
-
-    setDataExtractExtent(properties.geometry);
+  /**
+   * Sets the data extract URL when the data extract URL in the state changes.
+   */
+  useEffect(() => {
     setDataExtractUrl(state.projectInfo.data_extract_url);
+  }, [state.projectInfo.data_extract_url]);
+
+  const lockedPopup = (properties: Record<string, any>) => {
+    if (properties.locked_by_user === authDetails?.id) {
+      return <p>This task was locked by you</p>;
+    }
+    return null;
+  };
+
+  /**
+   * Handles the click event on a project task area.
+   *
+   * @param {Object} properties - Properties attached to task area boundary feature.
+   * @param {Object} feature - The clicked task area feature.
+   */
+  const projectClickOnTaskArea = (properties, feature) => {
+    // Close task feature popup, open task area popup
+    setSelectedTaskFeature(undefined);
+    setSelectedTaskArea(feature);
+
+    let extent = properties.geometry.getExtent();
+    setDataExtractExtent(properties.geometry);
 
     mapRef.current?.scrollIntoView({
       block: 'center',
       behavior: 'smooth',
     });
 
-    dispatch(CoreModules.TaskActions.SetSelectedTask(properties.uid));
-
+    dispatch(CoreModules.TaskActions.SetSelectedTask(properties?.fid));
     dispatch(ProjectActions.ToggleTaskModalStatus(true));
+
+    // Fit the map view to the clicked feature's extent based on the window size
     if (windowSize.width < 768 && map.getView().getZoom() < 17) {
       map.getView().fit(extent, {
         padding: [10, 20, 300, 20],
@@ -196,10 +198,39 @@ const Home = () => {
     }
   };
 
-  const buildingStyle = {
-    ...defaultStyles,
-    lineColor: '#FF0000',
-    fillOpacity: '0',
+  /**
+   * Handles the click event on a task feature (geometry).
+   *
+   * @param {Object} properties - Properties attached to map feature.
+   * @param {Object} feature - The clicked feature.
+   */
+  const projectClickOnTaskFeature = (properties, feature) => {
+    // Close task area popup, open task feature popup
+    // setSelectedTaskArea(undefined);
+    setSelectedTaskFeature(feature);
+
+    dispatch(CoreModules.TaskActions.SetSelectedFeatureProps(properties));
+
+    // let extent = properties.geometry.getExtent();
+    // setDataExtractExtent(properties.geometry);
+
+    // mapRef.current?.scrollIntoView({
+    //   block: 'center',
+    //   behavior: 'smooth',
+    // });
+
+    dispatch(ProjectActions.ToggleTaskModalStatus(true));
+
+    // // Fit the map view to the clicked feature's extent based on the window size
+    // if (windowSize.width < 768 && map.getView().getZoom() < 17) {
+    //   map.getView().fit(extent, {
+    //     padding: [10, 20, 300, 20],
+    //   });
+    // } else if (windowSize.width > 768 && map.getView().getZoom() < 17) {
+    //   map.getView().fit(extent, {
+    //     padding: [20, 350, 50, 10],
+    //   });
+    // }
   };
 
   useEffect(() => {
@@ -216,14 +247,14 @@ const Home = () => {
 
   useEffect(() => {
     if (taskModalStatus) {
-      setViewState('comments');
+      setViewState('task_activity');
     } else {
       setViewState('project_info');
     }
   }, [taskModalStatus]);
 
   useEffect(() => {
-    dispatch(GetProjectDashboard(`${import.meta.env.VITE_API_URL}/projects/project_dashboard/${decodedId}`));
+    dispatch(GetEntityInfo(`${import.meta.env.VITE_API_URL}/projects/${projectId}/entities/statuses`));
   }, []);
 
   useEffect(async () => {
@@ -231,7 +262,6 @@ const Home = () => {
       return;
     }
 
-    console.log(projectOpfsBasemapPath);
     const opfsPmtilesData = await readFileFromOPFS(projectOpfsBasemapPath);
     setCustomBasemapData(opfsPmtilesData);
     // setCustomBasemapData(projectOpfsBasemapPath);
@@ -241,8 +271,9 @@ const Home = () => {
   const [showDebugConsole, setShowDebugConsole] = useState(false);
 
   return (
-    <div className="fmtm-bg-[#f5f5f5]" style={{ height: '100%' }}>
+    <div className="fmtm-bg-[#f5f5f5] !fmtm-h-[100dvh] sm:!fmtm-h-full">
       {/* only used to display debug console */}
+
       <DebugConsole showDebugConsole={showDebugConsole} setShowDebugConsole={setShowDebugConsole} />
       {/* Customized Modal For Generate Tiles */}
       <div>
@@ -294,28 +325,42 @@ const Home = () => {
             )}
             <div className="fmtm-w-full fmtm-h-1 fmtm-bg-white"></div>
             <div className="fmtm-flex fmtm-w-full">
-              <button
-                className={`fmtm-rounded-none fmtm-border-none fmtm-text-base ${
-                  viewState === 'project_info' || viewState === 'comments'
-                    ? 'fmtm-bg-primaryRed fmtm-text-white hover:fmtm-bg-red-700'
-                    : 'fmtm-bg-white fmtm-text-[#706E6E] hover:fmtm-bg-grey-50'
-                } fmtm-py-1`}
-                onClick={() => {
-                  taskModalStatus ? setViewState('comments') : setViewState('project_info');
-                }}
-              >
-                {taskModalStatus ? 'Comments' : 'Project Info'}
-              </button>
-              <button
-                className={`fmtm-rounded-none fmtm-border-none fmtm-text-base ${
-                  viewState === 'task_activity'
-                    ? 'fmtm-bg-primaryRed fmtm-text-white hover:fmtm-bg-red-700'
-                    : 'fmtm-bg-white fmtm-text-[#706E6E] hover:fmtm-bg-grey-50'
-                } fmtm-py-1`}
-                onClick={() => setViewState('task_activity')}
-              >
-                Task Activity
-              </button>
+              {!taskModalStatus && (
+                <button
+                  className={`fmtm-rounded-none fmtm-border-none fmtm-text-base ${
+                    viewState === 'project_info'
+                      ? 'fmtm-bg-primaryRed fmtm-text-white hover:fmtm-bg-red-700'
+                      : 'fmtm-bg-white fmtm-text-[#706E6E] hover:fmtm-bg-grey-50'
+                  } fmtm-py-1`}
+                  onClick={() => setViewState('project_info')}
+                >
+                  Project Info
+                </button>
+              )}
+              {taskModalStatus && (
+                <button
+                  className={`fmtm-rounded-none fmtm-border-none fmtm-text-base ${
+                    viewState === 'task_activity'
+                      ? 'fmtm-bg-primaryRed fmtm-text-white hover:fmtm-bg-red-700'
+                      : 'fmtm-bg-white fmtm-text-[#706E6E] hover:fmtm-bg-grey-50'
+                  } fmtm-py-1`}
+                  onClick={() => setViewState('task_activity')}
+                >
+                  Task Activity
+                </button>
+              )}
+              {taskModalStatus && (
+                <button
+                  className={`fmtm-rounded-none fmtm-border-none fmtm-text-base ${
+                    viewState === 'comments'
+                      ? 'fmtm-bg-primaryRed fmtm-text-white hover:fmtm-bg-red-700'
+                      : 'fmtm-bg-white fmtm-text-[#706E6E] hover:fmtm-bg-grey-50'
+                  } fmtm-py-1`}
+                  onClick={() => setViewState('comments')}
+                >
+                  Comments
+                </button>
+              )}
               <button
                 className={`fmtm-rounded-none fmtm-border-none fmtm-text-base ${
                   viewState === 'instructions'
@@ -351,7 +396,7 @@ const Home = () => {
                 btnText="VIEW INFOGRAPHICS"
                 btnType="other"
                 className="hover:fmtm-text-red-700 fmtm-border-red-700 !fmtm-rounded-md fmtm-my-2"
-                onClick={() => navigate(`/project-submissions/${encodedId}`)}
+                onClick={() => navigate(`/project-submissions/${projectId}`)}
               />
               <div className="fmtm-relative" ref={divRef}>
                 <div onClick={() => handleToggle()}>
@@ -363,10 +408,12 @@ const Home = () => {
                 </div>
                 <div
                   className={`fmtm-flex fmtm-gap-4 fmtm-absolute fmtm-duration-200 fmtm-z-[1000] fmtm-bg-[#F5F5F5] fmtm-p-2 fmtm-rounded-md ${
-                    toggle ? 'fmtm-left-0 fmtm-top-0' : '-fmtm-left-[60rem] fmtm-top-0'
+                    toggle
+                      ? 'fmtm-left-0 fmtm-bottom-0 lg:fmtm-top-0'
+                      : '-fmtm-left-[60rem] fmtm-bottom-0 lg:fmtm-top-0'
                   }`}
                 >
-                  <ProjectOptions />
+                  <ProjectOptions projectName={state?.projectInfo?.title} />
                 </div>
               </div>
             </div>
@@ -378,15 +425,18 @@ const Home = () => {
               ref={mapRef}
               mapInstance={map}
               className={`map naxatw-relative naxatw-min-h-full naxatw-w-full ${
-                windowSize.width <= 640 ? 'fmtm-h-[100vh]' : 'fmtm-h-full'
+                windowSize.width <= 640 ? '!fmtm-h-[100dvh]' : '!fmtm-h-full'
               }`}
             >
               {import.meta.env.MODE === 'development' && (
-                <div className="fmtm-absolute fmtm-top-16 fmtm-left-4 fmtm-z-50">
-                  <Button
-                    btnText="Toggle Console"
-                    btnType="secondary"
-                    onClick={() => setShowDebugConsole(!showDebugConsole)}
+                <div className="fmtm-block sm:fmtm-hidden fmtm-absolute fmtm-top-6 fmtm-left-16 fmtm-z-50">
+                  <CustomCheckbox
+                    label="Toggle-Console"
+                    checked={showDebugConsole}
+                    onCheckedChange={(status) => {
+                      setShowDebugConsole(status);
+                    }}
+                    className="fmtm-text-black !fmtm-w-full"
                   />
                 </div>
               )}
@@ -405,34 +455,49 @@ const Home = () => {
                     duration: 2000,
                   }}
                   layerProperties={{ name: 'project-area' }}
-                  mapOnClick={projectClickOnMapTask}
+                  mapOnClick={projectClickOnTaskArea}
                   zoomToLayer
                   zIndex={5}
-                  getTaskStatusStyle={(feature) => getTaskStatusStyle(feature, mapTheme)}
+                  getTaskStatusStyle={(feature) => {
+                    return getTaskStatusStyle(
+                      feature,
+                      mapTheme,
+                      feature.getProperties()?.locked_by_user == authDetails?.id,
+                    );
+                  }}
                 />
               )}
-              {dataExtractUrl && isValidUrl(dataExtractUrl) && (
+              {dataExtractUrl && isValidUrl(dataExtractUrl) && dataExtractExtent && (
                 <VectorLayer
                   fgbUrl={dataExtractUrl}
                   fgbExtent={dataExtractExtent}
-                  style={buildingStyle}
+                  getTaskStatusStyle={(feature) => {
+                    return getFeatureStatusStyle(feature?.getProperties()?.osm_id, mapTheme, entityOsmMap);
+                  }}
                   viewProperties={{
                     size: map?.getSize(),
                     padding: [50, 50, 50, 50],
                     constrainResolution: true,
                     duration: 2000,
                   }}
+                  mapOnClick={projectClickOnTaskFeature}
                   zoomToLayer
                   zIndex={5}
                 />
               )}
-              <AsyncPopup map={map} popupUI={dataExtractDataPopup} primaryKey={'osm_id'} showOnHover="singleclick" />
-              <div className="fmtm-top-28 fmtm-left-5">{window.DeviceMotionEvent}</div>
-              <div className="fmtm-absolute fmtm-bottom-36 sm:fmtm-bottom-5 fmtm-left-5 fmtm-z-50 fmtm-rounded-lg">
+              <AsyncPopup
+                map={map}
+                popupUI={lockedPopup}
+                primaryKey={'locked_by_user'}
+                showOnHover="pointermove"
+                popupId="locked-popup"
+                className="fmtm-w-[235px]"
+              />
+              <div className="fmtm-absolute fmtm-bottom-20 sm:fmtm-bottom-5 fmtm-left-3 fmtm-z-50 fmtm-rounded-lg">
                 <Accordion
                   body={<MapLegends defaultTheme={defaultTheme} />}
                   header={
-                    <div className="fmtm-flex fmtm-items-center fmtm-gap-2">
+                    <div className="fmtm-flex fmtm-items-center fmtm-gap-1 sm:fmtm-gap-2">
                       <AssetModules.LegendToggleIcon className=" fmtm-text-primaryRed" sx={{ fontSize: '30px' }} />
                       <p className="fmtm-text-lg fmtm-font-normal">Legend</p>
                     </div>
@@ -442,9 +507,9 @@ const Home = () => {
                   collapsed={true}
                 />
               </div>
-              <div className="fmtm-absolute fmtm-bottom-[8.6rem] sm:fmtm-top-3 fmtm-right-3 fmtm-z-50 fmtm-h-fit">
+              <div className="fmtm-absolute fmtm-bottom-20 sm:fmtm-bottom-5 fmtm-right-3 fmtm-z-50 fmtm-h-fit">
                 <Button
-                  btnText="GENERATE MBTILES"
+                  btnText="Basemaps"
                   icon={<AssetModules.BoltIcon />}
                   onClick={() => {
                     dispatch(ProjectActions.ToggleGenerateMbTilesModalStatus(true));
@@ -453,7 +518,7 @@ const Home = () => {
                   className="!fmtm-text-base !fmtm-pr-2"
                 />
               </div>
-              <MapControlComponent map={map} />
+              <MapControlComponent map={map} projectName={state?.projectInfo?.title} />
             </MapComponent>
             <div
               className="fmtm-absolute fmtm-top-4 fmtm-left-4 fmtm-bg-white fmtm-rounded-full fmtm-p-1 hover:fmtm-bg-red-50 fmtm-duration-300 fmtm-border-[1px] sm:fmtm-hidden fmtm-cursor-pointer"
@@ -476,7 +541,7 @@ const Home = () => {
             {mobileFooterSelection === 'instructions' && (
               <BottomSheet
                 body={
-                  <div className="fmtm-mb-[12vh]">
+                  <div className="fmtm-mb-[10vh]">
                     <Instructions instructions={state?.projectInfo?.instructions} />
                   </div>
                 }
@@ -486,37 +551,35 @@ const Home = () => {
             {mobileFooterSelection === 'comment' && (
               <BottomSheet
                 body={
-                  <div className="fmtm-mb-[12vh]">
+                  <div className="fmtm-mb-[10vh]">
                     <Comments />
                   </div>
                 }
                 onClose={() => dispatch(ProjectActions.SetMobileFooterSelection(''))}
               />
             )}
-            {mobileFooterSelection === 'others' && (
-              <BottomSheet
-                body={
-                  <div className="fmtm-mb-[10vh]">
-                    <ProjectOptions />
-                  </div>
-                }
-                onClose={() => dispatch(ProjectActions.SetMobileFooterSelection(''))}
-              />
-            )}
-
             <MobileFooter />
           </div>
         )}
       </div>
-      {featuresLayer != undefined && (
-        <TaskSectionPopup
+      {selectedTaskArea != undefined && selectedTaskFeature === undefined && (
+        <TaskSelectionPopup
           taskId={selectedTask}
-          feature={featuresLayer}
+          feature={selectedTaskArea}
           body={
             <div>
-              <DialogTaskActions map={map} view={mainView} feature={featuresLayer} taskId={selectedTask} />
+              <DialogTaskActions map={map} view={mainView} feature={selectedTaskArea} taskId={selectedTask} />
             </div>
           }
+        />
+      )}
+      {selectedTaskFeature != undefined && selectedTask && selectedTaskArea && (
+        <FeatureSelectionPopup
+          map={map}
+          view={mainView}
+          featureProperties={selectedFeatureProps}
+          taskId={selectedTask}
+          taskFeature={selectedTaskArea}
         />
       )}
     </div>

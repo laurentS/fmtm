@@ -304,3 +304,23 @@ class ReviewStateEnum(StrEnum, Enum):
     hasissues = "hasIssues"
     approved = "approved"
     rejected = "rejected"
+
+
+class GeometryType(str, Enum):
+    """Enum for GeoJSON types."""
+
+    Polygon = "Polygon"
+    LineString = "LineString"
+    Point = "Point"
+
+
+class XLSFormType(str, Enum):
+    """Enum for XLSForm categories."""
+
+    BUILDING = "buildings"
+    HIGHWAYS = "highways"
+    HEALTH = "health"
+    TOILETS = "toilets"
+    RELIGIOUS = "religious"
+    LANDUSAGE = "landusage"
+    WATERWAYS = "waterways"

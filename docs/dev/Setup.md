@@ -106,7 +106,7 @@ similar on AWS etc)
 
 ### Work on existing projects
 
-If you donot want to create a new project and wish to work on an existing
+If you do not want to create a new project and wish to work on an existing
 project then follow the steps below:
 
 - Go to [fmtm](https://fmtm.hotosm.org/) .
@@ -374,7 +374,7 @@ authenticate.
    Three endpoints are responsible for oauth
    <img width="698" alt="image" src="../images/endpoints_responsible_for_auth_screenshot-2023-03-26-092756.png">
 
-2. Select the `/auth/osm_login/` endpoint, click `Try it out` and then
+2. Select the `/auth/osm-login/` endpoint, click `Try it out` and then
    `Execute`.  
     This would give you the Login URL where you can supply your osm username
    and password.

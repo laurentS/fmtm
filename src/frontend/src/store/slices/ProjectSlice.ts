@@ -30,6 +30,9 @@ const initialState: ProjectStateTypes = {
     total_contributors: null,
     last_active: '',
   },
+  entityOsmMap: [],
+  entityOsmMapLoading: false,
+  updateEntityStatusLoading: false,
   projectDashboardLoading: false,
   geolocationStatus: false,
   projectCommentsList: [],
@@ -37,6 +40,9 @@ const initialState: ProjectStateTypes = {
   projectGetCommentsLoading: false,
   clearEditorContent: false,
   projectOpfsBasemapPath: null,
+  projectTaskActivity: [],
+  projectActivityLoading: false,
+  downloadSubmissionLoading: false,
 };
 
 const ProjectSlice = createSlice({
@@ -98,6 +104,12 @@ const ProjectSlice = createSlice({
     SetProjectDashboardDetail(state, action) {
       state.projectDashboardDetail = action.payload;
     },
+    SetEntityToOsmIdMapping(state, action) {
+      state.entityOsmMap = action.payload;
+    },
+    SetEntityToOsmIdMappingLoading(state, action) {
+      state.entityOsmMapLoading = action.payload;
+    },
     SetProjectDashboardLoading(state, action) {
       state.projectDashboardLoading = action.payload;
     },
@@ -121,6 +133,49 @@ const ProjectSlice = createSlice({
     },
     SetProjectOpfsBasemapPath(state, action) {
       state.projectOpfsBasemapPath = action.payload;
+    },
+    SetProjectTaskActivity(state, action) {
+      state.projectTaskActivity = action.payload;
+    },
+    SetProjectTaskActivityLoading(state, action) {
+      state.projectActivityLoading = action.payload;
+    },
+    UpdateProjectTaskActivity(state, action) {
+      state.projectTaskActivity = [action.payload, ...state.projectTaskActivity];
+    },
+    UpdateEntityStatusLoading(state, action) {
+      state.updateEntityStatusLoading = action.payload;
+    },
+    UpdateEntityStatus(state, action) {
+      const updatedEntityOsmMap = state.entityOsmMap?.map((entity) => {
+        if (entity.id === action.payload.id) {
+          return action.payload;
+        }
+        return entity;
+      });
+      state.entityOsmMap = updatedEntityOsmMap;
+    },
+    UpdateProjectTaskBoundries(state, action) {
+      const updatedProjectTaskBoundries = state.projectTaskBoundries?.map((boundary) => {
+        if (boundary.id == action.payload.projectId) {
+          const updatedBoundary = boundary?.taskBoundries?.map((taskBoundary) => {
+            if (taskBoundary?.index === action.payload.taskId) {
+              return {
+                ...taskBoundary,
+                locked_by_uid: action.payload.locked_by_uid,
+                locked_by_username: action.payload.locked_by_username,
+              };
+            }
+            return taskBoundary;
+          });
+          return { id: boundary.id, taskBoundries: updatedBoundary };
+        }
+        return boundary;
+      });
+      state.projectTaskBoundries = updatedProjectTaskBoundries;
+    },
+    SetDownloadSubmissionGeojsonLoading(state, action) {
+      state.downloadSubmissionLoading = action.payload;
     },
   },
 });

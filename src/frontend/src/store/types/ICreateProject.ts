@@ -15,8 +15,6 @@ export type CreateProjectStateTypes = {
   organisationList: OrganisationListTypes[];
   organisationListLoading: boolean;
   generateQrSuccess: GenerateQrSuccessTypes | null;
-  generateProjectLogLoading: boolean;
-  generateProjectLog: GenerateProjectLogTypes | null;
   createProjectStep: number;
   dividedTaskLoading: boolean;
   dividedTaskGeojson: null | GeoJSONFeatureTypes;
@@ -60,10 +58,9 @@ export type GeoJSONFeatureTypes = {
 
 export type ProjectTaskTypes = {
   id: number;
+  index: number;
   project_id: number;
-  project_task_index: number;
   outline_geojson: GeoJSONFeatureTypes;
-  outline_centroid: GeoJSONFeatureTypes;
   task_status: number;
   locked_by_uid: number | null;
   locked_by_username: string | null;
@@ -118,6 +115,9 @@ export type ProjectDetailsTypes = {
   average_buildings_per_task?: number;
   dataExtractWays?: string;
   per_task_instructions?: string;
+  custom_tms_url: string;
+  hasCustomTMS: boolean;
+  hasGeojsonLineString: boolean;
 };
 
 export type ProjectAreaTypes = {
@@ -145,13 +145,6 @@ export type OrganisationListTypes = {
   odk_central_url: string | null;
 };
 
-export type GenerateProjectLogTypes = {
-  status: string;
-  message: string | null;
-  progress: number;
-  logs: string;
-};
-
 export type TaskSplittingGeojsonTypes = {
   // Define properties related to the task splitting GeoJSON here
 };
@@ -161,4 +154,11 @@ export type DrawnGeojsonTypes = {
   properties: null;
   geometry: GeometryTypes;
   features?: [];
+};
+
+export type taskSplitOptionsType = {
+  name: string;
+  value: string;
+  label: string;
+  disabled: boolean;
 };
